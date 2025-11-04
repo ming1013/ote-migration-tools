@@ -287,4 +287,4 @@ Contributions welcome! To improve the migration tools:
 
 ## Author
 
-[Your name/team]
+minl@redhat.com
