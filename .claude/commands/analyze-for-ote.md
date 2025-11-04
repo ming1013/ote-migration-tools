@@ -16,14 +16,45 @@ Analyze the target repository and provide a comprehensive migration report WITHO
 
 Ask the user for the repository path to analyze (or use current directory).
 
-### 2. Discover Test Files
+### 2. Check for E2E Tests and Offer to Copy
 
-Search for Ginkgo test files by looking for:
+**Check for existing e2e tests:**
+- Search for test files in common e2e directories: `test/e2e/`, `e2e/`, `tests/e2e/`
+- Look for files matching `*_test.go` with Ginkgo patterns (`Describe`, `It`, `Context`)
+
+**If NO e2e tests found:**
+1. Inform the user: "No e2e tests found in the repository."
+2. Ask: "Would you like to copy e2e tests from another repository/directory?"
+3. If YES:
+   - Ask for source path/repo: "Please provide the path to the source repository or directory containing e2e tests"
+   - Ask for source test directory: "Which directory contains the tests? (e.g., test/e2e, e2e)"
+   - Ask for destination: "Where should tests be copied to in the target repo? (default: test/e2e)"
+   - Copy the tests using appropriate tools (Bash cp command)
+   - Confirm: "✅ Copied e2e tests from [source] to [destination]"
+4. If NO:
+   - Warn: "⚠️ Migration will proceed but no tests will be available for analysis"
+   - Ask: "Continue anyway? (y/N)"
+
+**If e2e tests EXIST:**
+1. Inform the user: "Found X e2e test files in [directories]"
+2. Ask: "Would you like to add more e2e tests from another source? (y/N)"
+3. If YES:
+   - Ask for source path: "Please provide the path to the additional e2e tests"
+   - Ask for source test directory: "Which directory contains the tests? (e.g., test/e2e, e2e)"
+   - Ask about merge strategy: "How should we handle conflicts? (skip/overwrite/rename)"
+   - Copy the tests with the chosen strategy
+   - Confirm: "✅ Added additional e2e tests from [source]"
+4. If NO:
+   - Proceed with analysis
+
+### 3. Discover Test Files
+
+After handling e2e test copying, search for ALL Ginkgo test files:
 - Files containing `Describe(`, `Context(`, `It(` patterns
 - Typically in `test/`, `e2e/`, `pkg/` directories
 - File pattern: `*_test.go`
 
-### 3. Extract Test Metadata
+### 4. Extract Test Metadata
 
 For each test file and test case, extract:
 
@@ -46,7 +77,7 @@ For each test file and test case, extract:
 - Suite indicators
 - Conformance markers
 
-### 4. Identify Hooks
+### 5. Identify Hooks
 
 Look for:
 - `BeforeAll()` / `AfterAll()` calls
@@ -54,14 +85,14 @@ Look for:
 - `BeforeSuite()` / `AfterSuite()` calls
 - Any setup/teardown code that needs migration
 
-### 5. Check Dependencies
+### 6. Check Dependencies
 
 Examine `go.mod`:
 - Current Ginkgo version
 - Whether OTE is already a dependency
 - Other testing framework dependencies
 
-### 6. Generate Migration Report
+### 7. Generate Migration Report
 
 Provide a detailed report with:
 
@@ -174,5 +205,42 @@ List any concerns:
 - Count occurrences of each pattern type
 - Identify outliers or unusual patterns
 - Look for inconsistencies in naming/labeling
+
+## E2E Test Copying Implementation Notes
+
+When copying e2e tests:
+
+**Directory Detection:**
+```bash
+# Check for e2e test directories
+Glob: "test/e2e/**/*_test.go"
+Glob: "e2e/**/*_test.go"
+Glob: "tests/e2e/**/*_test.go"
+```
+
+**Copying Tests:**
+```bash
+# Create destination directory if needed
+Bash: mkdir -p <target-repo>/<destination-dir>
+
+# Copy tests from source
+Bash: cp -r <source-path>/<source-dir>/* <target-repo>/<destination-dir>/
+
+# For selective copying (skip conflicts)
+Bash: cp -n <source-path>/<source-dir>/* <target-repo>/<destination-dir>/
+
+# For overwrite
+Bash: cp -rf <source-path>/<source-dir>/* <target-repo>/<destination-dir>/
+```
+
+**Validation After Copy:**
+- Re-scan for test files to confirm tests were copied
+- Count files before and after
+- List what was copied for user confirmation
+
+**Common Source Locations:**
+- OpenShift origin e2e tests: `openshift/origin/test/extended/`
+- Component-specific templates
+- Shared test libraries
 
 Start by asking the user for the repository path to analyze.
