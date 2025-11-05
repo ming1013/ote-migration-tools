@@ -47,14 +47,48 @@ Ask the user for the repository path to analyze (or use current directory).
 4. If NO:
    - Proceed with analysis
 
-### 3. Discover Test Files
+### 3. Check for Test Data Requirements
 
-After handling e2e test copying, search for ALL Ginkgo test files:
+**After handling e2e test copying (whether YES or NO), always remind the user about test data:**
+
+⚠️ **Test Data Reminder**
+
+Ask the user: "Do you need to copy any test data files (fixtures, test configs, sample data, etc.)?"
+
+**If YES:**
+1. Ask for source path: "Please provide the path to the source test data"
+2. Ask for source data directory: "Which directory/files contain the test data? (e.g., test/e2e/testdata, testdata, fixtures)"
+3. Ask for destination: "Where should the test data be copied to in the target repo? (default: test/e2e/testdata)"
+4. Copy the test data using appropriate tools:
+   ```bash
+   # Create destination directory
+   Bash: mkdir -p <target-repo>/<destination-dir>
+
+   # Copy test data
+   Bash: cp -r <source-path>/<data-dir>/* <target-repo>/<destination-dir>/
+   ```
+5. Confirm: "✅ Copied test data from [source] to [destination]"
+6. List what was copied for verification
+
+**If NO:**
+- Confirm: "Proceeding without copying test data. You can add it later if needed."
+
+**Common test data locations to check:**
+- `test/e2e/testdata/`
+- `testdata/`
+- `fixtures/`
+- `test/fixtures/`
+- Configuration files (yamls, jsons, etc.)
+- Sample manifests or resources
+
+### 4. Discover Test Files
+
+After handling e2e test copying and test data, search for ALL Ginkgo test files:
 - Files containing `Describe(`, `Context(`, `It(` patterns
 - Typically in `test/`, `e2e/`, `pkg/` directories
 - File pattern: `*_test.go`
 
-### 4. Extract Test Metadata
+### 5. Extract Test Metadata
 
 For each test file and test case, extract:
 
@@ -77,7 +111,7 @@ For each test file and test case, extract:
 - Suite indicators
 - Conformance markers
 
-### 5. Identify Hooks
+### 6. Identify Hooks
 
 Look for:
 - `BeforeAll()` / `AfterAll()` calls
@@ -85,14 +119,14 @@ Look for:
 - `BeforeSuite()` / `AfterSuite()` calls
 - Any setup/teardown code that needs migration
 
-### 6. Check Dependencies
+### 7. Check Dependencies
 
 Examine `go.mod`:
 - Current Ginkgo version
 - Whether OTE is already a dependency
 - Other testing framework dependencies
 
-### 7. Generate Migration Report
+### 8. Generate Migration Report
 
 Provide a detailed report with:
 
