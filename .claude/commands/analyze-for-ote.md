@@ -35,24 +35,28 @@ Target Repository Configuration:
 - Module: github.com/org/repo
 ```
 
-### 2. Collect Private Repository Information
+### 2. Collect Test Cases and Test Data Locations
 
-Ask the user for information about the **private repository** (source of tests and test data):
+Ask the user for the following information in two separate questions:
 
-**Required Information:**
-- Private repository path
-- Test files directory (e.g., `test/e2e`, `e2e`, `tests/e2e`)
-  - Auto-detect by searching for `*_test.go` files, show options to user
-- Test data directory (e.g., `test/e2e/testdata`, `testdata`, `fixtures`)
-  - Auto-detect common locations, show options to user
-  - Allow user to specify "none" if no test data exists
+**Question 1: Test Cases Location**
+Ask: "What is the absolute path to the directory containing your test case files?"
+- No default value
+- User must provide the full path to where test files (*_test.go) are located
+- Example: `/home/user/repos/openshift/private-tests/test/e2e`
+
+**Question 2: Test Data Location**
+Ask: "What is the absolute path to the directory containing your test data files? (Enter 'none' if no test data exists)"
+- No default value
+- User must provide the full path to where test data files are located
+- Allow user to specify "none" if no test data exists
+- Example: `/home/user/repos/openshift/private-tests/test/e2e/testdata` or `none`
 
 **Display collected info:**
 ```
-Private Repository Configuration:
-- Path: /path/to/private/repo
-- Test Directory: test/e2e
-- Test Data Directory: test/e2e/testdata
+Test Cases and Test Data Configuration:
+- Test Cases Location: /path/to/test/cases
+- Test Data Location: /path/to/test/data (or "none")
 ```
 
 ### 3. Create File Structure in Target Repository
@@ -344,20 +348,23 @@ func main() {
 
 After creating the structure and templates:
 
-1. **Copy test files** from private repo to target repo:
+1. **Copy test files** to target repo:
    ```bash
-   cp -r <private-repo>/<test-dir>/* <target-repo>/test/e2e/
+   cp -r <test-cases-location>/* <target-repo>/test/e2e/
    ```
+   Use the absolute path provided by the user in Question 1.
 
-2. **Copy test data** from private repo to target repo:
+2. **Copy test data** to target repo (skip if user specified "none"):
    ```bash
-   cp -r <private-repo>/<testdata-dir>/* <target-repo>/test/testdata/
+   cp -r <test-data-location>/* <target-repo>/test/testdata/
    ```
+   Use the absolute path provided by the user in Question 2.
+   If user specified "none", skip this step.
 
 3. **Verify the copy**:
    - List copied files
    - Count test files
-   - Check test data integrity
+   - Check test data integrity (if applicable)
 
 ### 8. Generate Summary Report
 
@@ -375,8 +382,8 @@ Provide a summary of what was created:
 - test/testdata/ (test data copied from private repo)
 
 ## Files Copied
-- Test files: X files from <private-repo>/<test-dir>
-- Test data: Y files from <private-repo>/<testdata-dir>
+- Test files: X files from <test-cases-location>
+- Test data: Y files from <test-data-location> (or "none" if not applicable)
 
 ## Next Steps
 
@@ -413,11 +420,6 @@ Provide a summary of what was created:
 ```
 
 ## Implementation Notes
-
-**Auto-detection Tips:**
-- For test directories: Search for `*_test.go` files containing Ginkgo patterns
-- For testdata: Look in common locations relative to test directories
-- Always show detected options and let user confirm or override
 
 **Error Handling:**
 - Verify directories exist before copying
