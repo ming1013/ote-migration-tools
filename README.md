@@ -212,12 +212,76 @@ This is particularly useful when tests need to read configuration files, manifes
 
 ### Extension Implementation (`pkg/<extension-name>/extension/extension.go`)
 
-OTE interface implementation with:
-- Extension registration and naming
-- Suite definitions
-- Platform filters (from both labels and test names)
-- Custom suite definitions
-- Hook placeholders for setup/teardown
+The core OTE integration code that connects your tests to the OpenShift Tests Extension framework.
+
+**Why it exists:**
+- OTE needs to know how to organize and run your tests
+- It defines which tests run on which platforms/environments
+- It sets up the test execution lifecycle
+- It integrates your tests into the broader openshift-tests suite structure
+
+**What it implements:**
+
+The file implements the OTE Extension interface with four required methods:
+
+1. **`Name()`** - Returns your extension's name
+   - Example: "sdn", "router", "network"
+
+2. **`Register(ext *extension.Extension)`** - Registers test suites with OTE
+   - Defines which suites your tests belong to
+   - Sets parent suites (e.g., "openshift/conformance/parallel")
+   - Can create custom suites (e.g., "slow tests", "conformance tests")
+
+3. **`BuildTestSpecs(specs *ExtensionTestSpecBuilder)`** - Configures test filtering
+   - Applies platform filters (AWS, GCP, Azure, etc.)
+   - Applies network filters, topology filters, architecture filters
+   - Reads filters from test labels or test name patterns like `[platform:aws]`
+
+4. **`SetupHooks(specs *ExtensionTestSpecBuilder)`** - Sets up test lifecycle hooks
+   - `BeforeAll` - runs once before all tests (e.g., extract test data, setup framework)
+   - `AfterEach` - runs after each test (e.g., collect diagnostics on failure)
+   - `AfterAll` - runs once after all tests (e.g., cleanup)
+
+**Example code snippets:**
+
+```go
+// Register a test suite
+func (e *Extension) Register(ext *extension.Extension) error {
+    ext.AddSuite(extension.Suite{
+        Name:    "openshift/router/tests",
+        Parents: []string{"openshift/conformance/parallel"},
+    })
+    return nil
+}
+
+// Apply platform filters from test names
+func (e *Extension) BuildTestSpecs(specs *et.ExtensionTestSpecBuilder) error {
+    specs.Walk(func(spec *et.ExtensionTestSpec) {
+        re := regexp.MustCompile(`\[platform:([a-z]+)\]`)
+        if match := re.FindStringSubmatch(spec.Name); match != nil {
+            platform := match[1]
+            spec.Include(et.PlatformEquals(platform))
+        }
+    })
+    return nil
+}
+
+// Setup test lifecycle hooks
+func (e *Extension) SetupHooks(specs *et.ExtensionTestSpecBuilder) error {
+    specs.AddBeforeAll(func() {
+        // Initialize test framework, extract test data
+    })
+
+    specs.AddAfterEach(func(res *et.ExtensionTestResult) {
+        if res.Result == et.ResultFailed {
+            // Collect diagnostics on failure
+        }
+    })
+    return nil
+}
+```
+
+The `/migrate-ote` command will populate this template with specific implementations based on your test patterns.
 
 ### Platform Filter Code
 
