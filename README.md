@@ -18,12 +18,13 @@ This repository contains Claude Code slash commands that automate the process of
 
 ### `/analyze-for-ote`
 
-Analyzes a repository without making changes. Provides:
-- Test count and distribution
-- Platform-specific test detection
-- Pattern analysis (platforms, labels, etc.)
-- Migration complexity assessment
-- Recommended filter code
+Prepares a repository for OTE migration by setting up infrastructure and template code:
+- Collects target repository info (path, extension name, module)
+- Collects private repository info (test directory, testdata directory)
+- Creates complete OTE file structure in target repository
+- Generates testdata extraction utilities with embed support
+- Creates template code for OTE interface implementation
+- Copies test files and test data from private repository
 
 ### `/migrate-ote`
 
@@ -55,10 +56,10 @@ cd ~/path/to/your/openshift-component-repo
 
 # Restart Claude Code to load the slash commands
 
-# Analyze the repo first (recommended)
+# Prepare the repo with infrastructure and templates (recommended first step)
 /analyze-for-ote
 
-# Perform the migration
+# Complete the migration with specific implementations
 /migrate-ote
 ```
 
@@ -132,7 +133,7 @@ go build ./cmd/sdn
 ./sdn run --platform=aws
 ```
 
-### Example 2: Analyzing Before Migration
+### Example 2: Preparing Infrastructure First
 
 ```bash
 ./install.sh ~/repos/openshift/cluster-network-operator
@@ -140,21 +141,60 @@ cd ~/repos/openshift/cluster-network-operator
 
 # Restart Claude Code
 
-# Just analyze first
+# Prepare infrastructure and templates first
 /analyze-for-ote
-# Review the report...
+# Provides:
+# - Target repo: ~/repos/openshift/cluster-network-operator
+# - Extension name: cluster-network-operator
+# - Private repo: ~/repos/openshift/private-tests
+# - Creates file structure and templates
 
-# Decide whether to proceed
+# Review generated templates, then complete migration
 /migrate-ote
 ```
 
 ## What Gets Generated
 
+### Directory Structure
+
+```
+target-repo/
+├── cmd/
+│   └── <extension-name>/
+│       ├── main.go                    # OTE entry point
+│       └── testdata/                  # Extracted test data
+├── pkg/
+│   └── <extension-name>/
+│       ├── testdata/
+│       │   ├── extractor.go           # Testdata extraction utility
+│       │   └── extractor_test.go      # Tests for extractor
+│       └── extension/
+│           ├── extension.go           # OTE extension interface
+│           └── extension_test.go      # Tests for extension
+└── test/
+    └── e2e/                           # Copied from private repo
+```
+
 ### Main Entry Point (`cmd/<extension-name>/main.go`)
 
 Complete boilerplate including:
 - Extension and suite registration
-- Ginkgo test spec building
+- Test package imports
+- OTE framework initialization
+
+### Testdata Extractor (`pkg/<extension-name>/testdata/extractor.go`)
+
+Utility for extracting embedded test data:
+- Embed.FS integration for test data
+- Extract() method to write data to filesystem
+- Clean() method for cleanup
+- GetPath() helper for accessing extracted files
+
+### Extension Implementation (`pkg/<extension-name>/extension/extension.go`)
+
+OTE interface implementation with:
+- Extension registration and naming
+- Suite definitions
 - Platform filters (from both labels and test names)
 - Custom suite definitions
 - Hook placeholders for setup/teardown
