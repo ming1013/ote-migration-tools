@@ -184,11 +184,31 @@ Complete boilerplate including:
 
 ### Testdata Extractor (`pkg/<extension-name>/testdata/extractor.go`)
 
-Utility for extracting embedded test data:
-- Embed.FS integration for test data
-- Extract() method to write data to filesystem
-- Clean() method for cleanup
-- GetPath() helper for accessing extracted files
+A utility that manages test data files during test execution. This is needed because:
+
+**Why it exists:**
+- Your test data files from `test/testdata/` are embedded into the compiled binary using Go's `//go:embed` directive
+- Some tests need actual files on the filesystem (not just embedded data)
+- The extractor bridges between embedded data (in the binary) and filesystem-based data (needed at runtime)
+
+**What it provides:**
+- `NewExtractor(targetDir)` - Creates a new extractor instance
+- `Extract()` - Writes all embedded test data to the filesystem
+- `Clean()` - Removes extracted files after tests complete
+- `GetPath(relativePath)` - Returns the filesystem path to an extracted file
+
+**Example usage:**
+```go
+extractor := testdata.NewExtractor("/tmp/my-test-data")
+extractor.Extract()  // Extracts all embedded test data to filesystem
+defer extractor.Clean()  // Cleanup when done
+
+// Now tests can access files on the filesystem
+configPath := extractor.GetPath("config.yaml")
+// Use configPath in your tests
+```
+
+This is particularly useful when tests need to read configuration files, manifests, or other test fixtures that must exist as actual files on disk.
 
 ### Extension Implementation (`pkg/<extension-name>/extension/extension.go`)
 
