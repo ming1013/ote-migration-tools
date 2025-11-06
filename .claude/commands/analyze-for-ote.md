@@ -63,9 +63,7 @@ Create the following directory structure in the target repository:
 target-repo/
 ├── cmd/
 │   └── <extension-name>/
-│       ├── main.go                    # OTE entry point (template)
-│       └── testdata/                  # Extracted test data
-│           └── .gitkeep
+│       └── main.go                    # OTE entry point (template)
 ├── pkg/
 │   └── <extension-name>/
 │       ├── testdata/
@@ -75,20 +73,18 @@ target-repo/
 │           ├── extension.go           # OTE extension interface implementation
 │           └── extension_test.go      # Tests for extension
 └── test/
-    └── e2e/                           # Copied from private repo
-        └── (test files)
+    ├── e2e/                           # Test files (copied from private repo)
+    └── testdata/                      # Test data files (copied from private repo)
 ```
 
 **Implementation:**
 ```bash
 # Create directories
-mkdir -p cmd/<extension-name>/testdata
+mkdir -p cmd/<extension-name>
 mkdir -p pkg/<extension-name>/testdata
 mkdir -p pkg/<extension-name>/extension
 mkdir -p test/e2e
-
-# Create .gitkeep for empty dirs
-touch cmd/<extension-name>/testdata/.gitkeep
+mkdir -p test/testdata
 ```
 
 ### 4. Create Testdata Extraction Utilities
@@ -101,12 +97,11 @@ package testdata
 import (
     "embed"
     "fmt"
-    "io"
     "os"
     "path/filepath"
 )
 
-//go:embed *
+//go:embed ../../../test/testdata
 var testDataFS embed.FS
 
 // Extractor handles extracting embedded test data to the filesystem
@@ -127,7 +122,7 @@ func (e *Extractor) Extract() error {
         return fmt.Errorf("failed to create target directory: %w", err)
     }
 
-    return e.extractDir(".", e.targetDir)
+    return e.extractDir("test/testdata", e.targetDir)
 }
 
 // extractDir recursively extracts a directory from the embedded FS
@@ -356,7 +351,7 @@ After creating the structure and templates:
 
 2. **Copy test data** from private repo to target repo:
    ```bash
-   cp -r <private-repo>/<testdata-dir>/* <target-repo>/pkg/<extension-name>/testdata/
+   cp -r <private-repo>/<testdata-dir>/* <target-repo>/test/testdata/
    ```
 
 3. **Verify the copy**:
@@ -376,7 +371,8 @@ Provide a summary of what was created:
 - pkg/<extension-name>/testdata/extractor.go
 - pkg/<extension-name>/testdata/extractor_test.go
 - pkg/<extension-name>/extension/extension.go
-- test/e2e/ (copied from private repo)
+- test/e2e/ (test files copied from private repo)
+- test/testdata/ (test data copied from private repo)
 
 ## Files Copied
 - Test files: X files from <private-repo>/<test-dir>

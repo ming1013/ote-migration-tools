@@ -161,8 +161,7 @@ cd ~/repos/openshift/cluster-network-operator
 target-repo/
 ├── cmd/
 │   └── <extension-name>/
-│       ├── main.go                    # OTE entry point
-│       └── testdata/                  # Extracted test data
+│       └── main.go                    # OTE entry point
 ├── pkg/
 │   └── <extension-name>/
 │       ├── testdata/
@@ -172,7 +171,8 @@ target-repo/
 │           ├── extension.go           # OTE extension interface
 │           └── extension_test.go      # Tests for extension
 └── test/
-    └── e2e/                           # Copied from private repo
+    ├── e2e/                           # Test files (copied from private repo)
+    └── testdata/                      # Test data files (copied from private repo)
 ```
 
 ### Main Entry Point (`cmd/<extension-name>/main.go`)
