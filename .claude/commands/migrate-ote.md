@@ -136,7 +136,117 @@ Check if `go.mod` exists and add/update OTE dependency:
 go get github.com/openshift-eng/openshift-tests-extension@latest
 ```
 
-### Step 5: Apply Additional Filters
+### Step 5: Use Testdata Infrastructure
+
+**Prerequisites:** Ensure you have run `/analyze-for-ote` first, which sets up:
+- `.bingo/` directory with go-bindata tool
+- `Makefile` with bindata generation target
+- `test/testdata/fixtures.go` with wrapper functions
+
+**Verify prerequisites:**
+
+```bash
+# Check that infrastructure exists
+test -d .bingo && test -f Makefile && test -f test/testdata/fixtures.go
+```
+
+If any of these are missing, run `/analyze-for-ote` first to set up the infrastructure.
+
+#### 5.1: Generate bindata.go
+
+Run the Makefile target to generate the bindata.go file:
+
+```bash
+make bindata
+```
+
+**What happens:**
+- Makefile automatically builds go-bindata from `.bingo/go-bindata.mod`
+- Generates `test/testdata/bindata.go` with all testdata files embedded
+- **No need to install bingo or go-bindata manually** - Makefile handles everything!
+
+**Verify generation:**
+```bash
+# Check the generated file exists
+ls -lh test/testdata/bindata.go
+
+# Verify it contains embedded assets
+grep -o "func Asset" test/testdata/bindata.go | head -5
+```
+
+#### 5.2: Update Test Code to Use New Wrapper
+
+Search for existing testdata access patterns and update them:
+
+**Common patterns to find and replace:**
+
+```bash
+# Search for old patterns
+grep -r "compat_otp.FixturePath" test/
+grep -r "exutil.FixturePath" test/
+```
+
+**Before:**
+```go
+configPath := compat_otp.FixturePath("config.yaml")
+manifestPath := exutil.FixturePath("manifests/deployment.yaml")
+```
+
+**After:**
+```go
+configPath := testdata.FixturePath("config.yaml")
+manifestPath := testdata.FixturePath("manifests/deployment.yaml")
+```
+
+**Update imports:**
+```go
+import (
+    // Add this
+    "<module-path>/test/testdata"
+
+    // Remove or comment out old imports
+    // "github.com/openshift/origin/test/extended/util/compat_otp"
+)
+```
+
+#### 5.3: Integrate with OTE Hooks
+
+Update `cmd/<extension-name>/main.go` to add fixture cleanup in hooks:
+
+```go
+// Add after building specs and before AddSpecs
+specs.AddAfterAll(func() {
+    if err := testdata.CleanupFixtures(); err != nil {
+        fmt.Printf("Warning: failed to cleanup fixtures: %v\n", err)
+    }
+})
+```
+
+Full context in main.go:
+```go
+// Build test specs from Ginkgo
+specs, err := g.BuildExtensionTestSpecsFromOpenShiftGinkgoSuite()
+if err != nil {
+    panic(fmt.Sprintf("couldn't build extension test specs from ginkgo: %+v", err.Error()))
+}
+
+// Apply filters...
+specs.Walk(func(spec *et.ExtensionTestSpec) {
+    // ... filter logic ...
+})
+
+// Add cleanup hook
+specs.AddAfterAll(func() {
+    if err := testdata.CleanupFixtures(); err != nil {
+        fmt.Printf("Warning: failed to cleanup fixtures: %v\n", err)
+    }
+})
+
+ext.AddSpecs(specs)
+```
+
+
+### Step 6: Apply Additional Filters
 
 Based on the analysis in Step 1, generate additional filter code for patterns found:
 
@@ -148,7 +258,7 @@ Based on the analysis in Step 1, generate additional filter code for patterns fo
 
 Add these filters to the `specs.Walk()` sections in main.go.
 
-### Step 6: Handle Custom Suites
+### Step 7: Handle Custom Suites
 
 If the user wants custom suites (e.g., "slow tests", "fast tests"), generate:
 
@@ -170,7 +280,7 @@ ext.AddSuite(e.Suite{
 })
 ```
 
-### Step 7: Generate Migration Summary
+### Step 8: Generate Migration Summary
 
 Provide a summary showing:
 - Files created/modified

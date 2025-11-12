@@ -20,11 +20,13 @@ This repository contains Claude Code slash commands that automate the process of
 
 Prepares a repository for OTE migration by setting up infrastructure and template code:
 - Collects target repository info (path, extension name, module)
-- Collects private repository info (test directory, testdata directory)
+- Collects test cases and test data locations
 - Creates complete OTE file structure in target repository
-- Generates testdata extraction utilities with embed support
+- Sets up `.bingo/` directory for go-bindata version management (committed to git)
+- Generates Makefile with bindata generation target
+- Creates testdata wrapper functions (`test/testdata/fixtures.go`)
 - Creates template code for OTE interface implementation
-- Copies test files and test data from private repository
+- Copies test files and test data to target repository
 
 ### `/migrate-ote`
 
@@ -159,20 +161,27 @@ cd ~/repos/openshift/cluster-network-operator
 
 ```
 target-repo/
+├── .bingo/                            # go-bindata version management (committed to git)
+│   ├── go-bindata.mod                 # Pinned go-bindata version
+│   ├── go-bindata.sum                 # Checksums
+│   ├── Variables.mk                   # Makefile integration
+│   ├── .gitignore                     # Bingo directory gitignore
+│   └── README.md                      # Documentation
 ├── cmd/
 │   └── <extension-name>/
 │       └── main.go                    # OTE entry point
 ├── pkg/
 │   └── <extension-name>/
-│       ├── testdata/
-│       │   ├── extractor.go           # Testdata extraction utility
-│       │   └── extractor_test.go      # Tests for extractor
 │       └── extension/
 │           ├── extension.go           # OTE extension interface
 │           └── extension_test.go      # Tests for extension
-└── test/
-    ├── e2e/                           # Test files (copied from private repo)
-    └── testdata/                      # Test data files (copied from private repo)
+├── test/
+│   ├── e2e/                           # Test files (copied from private repo)
+│   └── testdata/
+│       ├── bindata.go                 # Generated embedded testdata
+│       └── fixtures.go                # Testdata wrapper functions
+├── Makefile                           # Build targets (bindata generation)
+└── .gitignore                         # Ignores generated bindata.go
 ```
 
 ### Main Entry Point (`cmd/<extension-name>/main.go`)
@@ -181,34 +190,6 @@ Complete boilerplate including:
 - Extension and suite registration
 - Test package imports
 - OTE framework initialization
-
-### Testdata Extractor (`pkg/<extension-name>/testdata/extractor.go`)
-
-A utility that manages test data files during test execution. This is needed because:
-
-**Why it exists:**
-- Your test data files from `test/testdata/` are embedded into the compiled binary using Go's `//go:embed` directive
-- Some tests need actual files on the filesystem (not just embedded data)
-- The extractor bridges between embedded data (in the binary) and filesystem-based data (needed at runtime)
-
-**What it provides:**
-- `NewExtractor(targetDir)` - Creates a new extractor instance
-- `Extract()` - Writes all embedded test data to the filesystem
-- `Clean()` - Removes extracted files after tests complete
-- `GetPath(relativePath)` - Returns the filesystem path to an extracted file
-
-**Example usage:**
-```go
-extractor := testdata.NewExtractor("/tmp/my-test-data")
-extractor.Extract()  // Extracts all embedded test data to filesystem
-defer extractor.Clean()  // Cleanup when done
-
-// Now tests can access files on the filesystem
-configPath := extractor.GetPath("config.yaml")
-// Use configPath in your tests
-```
-
-This is particularly useful when tests need to read configuration files, manifests, or other test fixtures that must exist as actual files on disk.
 
 ### Extension Implementation (`pkg/<extension-name>/extension/extension.go`)
 
@@ -282,6 +263,96 @@ func (e *Extension) SetupHooks(specs *et.ExtensionTestSpecBuilder) error {
 ```
 
 The `/migrate-ote` command will populate this template with specific implementations based on your test patterns.
+
+### Testdata Handling (`test/testdata/fixtures.go` and `bindata.go`)
+
+The migration tools set up a robust testdata handling system using go-bindata to embed test data files into your binary.
+
+**Why this approach:**
+- Test data files are embedded into the compiled binary (self-contained executable)
+- Files are extracted to the filesystem at runtime (some tests need actual files on disk)
+- Provides drop-in replacement for functions like `compat_otp.FixturePath()`
+- Uses bingo configuration (committed to git) for version pinning and reproducible builds
+
+**What gets generated:**
+
+1. **`.bingo/` directory** - Tool version management (committed to git)
+   - `go-bindata.mod` - Pins go-bindata version
+   - `Variables.mk` - Makefile integration with `$(GO_BINDATA)` variable
+   - `.gitignore`, `README.md` - Documentation
+   - **Key point:** Users don't need to install bingo - Makefile uses `go build -modfile`
+
+2. **`Makefile`** - Bindata generation target
+   ```makefile
+   include .bingo/Variables.mk
+
+   bindata: test/testdata/bindata.go
+   test/testdata/bindata.go: $(GO_BINDATA) $(shell find test/testdata -type f -not -name 'bindata.go')
+       $(GO_BINDATA) -nocompress -nometadata \
+           -pkg testdata -o $@ -prefix "test" test/testdata/...
+   ```
+
+3. **`test/testdata/bindata.go`** - Generated file (auto-created by `make bindata`)
+   - Contains all testdata files as embedded byte arrays
+   - Provides `Asset()`, `RestoreAsset()`, `RestoreAssets()` functions
+   - **Should be in .gitignore** (regenerated during builds)
+
+4. **`test/testdata/fixtures.go`** - Wrapper functions
+   ```go
+   // Main function - replaces compat_otp.FixturePath()
+   func FixturePath(relativePath string) string
+
+   // Cleanup function - call in AfterAll hook
+   func CleanupFixtures() error
+
+   // Direct access to embedded data
+   func GetFixtureData(relativePath string) ([]byte, error)
+   func MustGetFixtureData(relativePath string) []byte
+   ```
+
+**Usage workflow:**
+
+```bash
+# 1. Generate bindata from test/testdata directory
+make bindata
+# Makefile automatically builds go-bindata from .bingo/go-bindata.mod
+# No manual installation needed!
+
+# 2. Build your extension
+go build ./cmd/<extension-name>
+
+# 3. The binary now contains all testdata embedded
+./<extension-name> run
+```
+
+**In your test code:**
+
+```go
+// Old way (private repo)
+configPath := compat_otp.FixturePath("config.yaml")
+
+// New way (OTE with bindata)
+configPath := testdata.FixturePath("config.yaml")
+
+// The file is automatically extracted from bindata to a temp directory
+data, err := os.ReadFile(configPath)
+```
+
+**Lifecycle integration:**
+
+The cleanup hook is automatically added to `main.go`:
+```go
+specs.AddAfterAll(func() {
+    if err := testdata.CleanupFixtures(); err != nil {
+        fmt.Printf("Warning: failed to cleanup fixtures: %v\n", err)
+    }
+})
+```
+
+This ensures extracted files are removed after test execution completes.
+
+**Follows operator-framework-olm pattern:**
+This approach matches [operator-framework-olm/tests-extension](https://github.com/openshift/operator-framework-olm/tree/main/tests-extension) where `.bingo/` is committed and users don't need to install bingo globally.
 
 ### Platform Filter Code
 
