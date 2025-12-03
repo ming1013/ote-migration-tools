@@ -24,9 +24,11 @@ The openshift-tests-extension framework allows external repositories to contribu
 
 No files to delete in this phase.
 
-### Phase 2: User Input Collection (9 inputs)
+### Phase 2: User Input Collection (up to 12 inputs, some conditional)
 
 Collect all necessary information from the user before starting the migration.
+
+**Note:** Source repository is always `git@github.com:openshift/openshift-tests-private.git`
 
 #### Input 1: Extension Name
 
@@ -51,40 +53,82 @@ If the working directory already exists:
 - If there are uncommitted changes, ask user to commit or stash them first
 - If no, continue without git validation
 
-#### Input 4: Source Repository URL
+#### Input 4: Local Source Repository (Optional)
 
-Ask: "What is the Git URL of the source repository containing the tests?"
-- Example: `https://github.com/openshift/origin.git`
-- This is where the original test files are located
+Ask: "Do you have a local clone of openshift-tests-private? If yes, provide the path (or press Enter to clone it):"
+- If provided: Use this existing local repository
+- If empty: Will clone `git@github.com:openshift/openshift-tests-private.git`
+- Example: `/home/user/repos/openshift-tests-private`
 
-#### Input 5: Target Repository URL
+#### Input 5: Update Local Source Repository (if local source provided)
 
-Ask: "What is the Git URL of the target repository (component repository)?"
-- Example: `https://github.com/openshift/sdn.git`
-- This is where the OTE integration will be added
+If a local source repository path was provided:
+Ask: "Do you want to update the local source repository? (git fetch && git pull) [Y/n]:"
+- Default: Yes
+- If yes: Run `git fetch && git pull` in the local repo
+- If no: Use current state
 
-#### Input 6: Source Test File Path
+#### Input 6: Source Test Subfolder
 
-Ask: "What is the relative path to test files in the source repository?"
-- Default: `test/extended/`
-- Example: `test/e2e/`, `test/integration/`
-- This is where we'll copy test files FROM
+Ask: "What is the test subfolder name under test/extended/?"
+- Example: "networking", "router", "storage", "templates"
+- This will be used as: `test/extended/<subfolder>/`
+- Leave empty to use all of `test/extended/`
 
-#### Input 7: Source Testdata Path
+#### Input 7: Source Testdata Subfolder (Optional)
 
-Ask: "What is the relative path to testdata in the source repository?"
-- Default: `test/extended/testdata/`
-- Example: `test/e2e/testdata/`, `test/fixtures/`
+Ask: "What is the testdata subfolder name under test/extended/testdata/? (or press Enter to use same as test subfolder)"
+- Default: Same as Input 6 (test subfolder)
+- Example: "networking", "router", etc.
+- This will be used as: `test/extended/testdata/<subfolder>/`
 - Enter "none" if no testdata exists
 
-#### Input 8: Destination Test Path (⭐ CUSTOMIZABLE)
+#### Input 8: Local Target Repository (Optional)
+
+Ask: "Do you have a local clone of the target repository? If yes, provide the path (or press Enter to clone from URL):"
+- If provided: Use this existing local repository
+  - Can be absolute path: `/home/user/repos/sdn`
+  - Can be relative path: `../sdn`
+  - Can be current directory: `.`
+- If empty: Will ask for URL to clone (Input 9)
+- After providing a path, you will be asked in Input 10 if you want to update it
+
+#### Input 9: Target Repository URL (if no local target provided)
+
+If no local target repository was provided in Input 8:
+Ask: "What is the Git URL of the target repository (component repository)?"
+- Example: `git@github.com:openshift/sdn.git`
+- This is where the OTE integration will be added
+
+#### Input 10: Update Local Target Repository (if local target provided)
+
+**IMPORTANT:** This input is REQUIRED when Input 8 provided a local path.
+
+If a local target repository path was provided in Input 8:
+1. First, check if the path is a git repository (has `.git` directory)
+2. If it IS a git repository, ask:
+   "Do you want to update the local target repository? (git fetch && git pull) [Y/n]:"
+   - Default: Yes
+   - User can answer: Y (yes) or N (no)
+3. If it is NOT a git repository, skip this question and show warning
+
+**Examples:**
+- User provided: `/home/user/repos/sdn` → Ask this question
+- User provided: `.` (current directory) → Ask this question if it's a git repo
+- User pressed Enter in Input 8 → Skip this question (will clone instead)
+
+**Action:**
+- If yes: Run `cd <target-path> && git fetch origin && git pull`
+- If no: Use current state without updating
+
+#### Input 11: Destination Test Path (⭐ CUSTOMIZABLE)
 
 Ask: "What is the destination path for test files in tests-extension?"
 - Default: `test/e2e/`
 - This is customizable - users can specify any path
 - Example: `test/integration/`, `pkg/tests/`
 
-#### Input 9: Destination Testdata Path (⭐ CUSTOMIZABLE)
+#### Input 12: Destination Testdata Path (⭐ CUSTOMIZABLE)
 
 Ask: "What is the destination path for testdata in tests-extension?"
 - Default: `test/testdata/`
@@ -98,11 +142,15 @@ Migration Configuration:
 Extension: <extension-name>
 Working Directory: <working-dir>
 
-Source Repository: <source-repo-url>
-  Test Files: <source-test-path>
-  Testdata: <source-testdata-path>
+Source Repository (openshift-tests-private):
+  URL: git@github.com:openshift/openshift-tests-private.git
+  Local Path: <local-source-path> (or "Will clone")
+  Test Subfolder: test/extended/<test-subfolder>/
+  Testdata Subfolder: test/extended/testdata/<testdata-subfolder>/
 
-Target Repository: <target-repo-url>
+Target Repository:
+  Local Path: <local-target-path> (or "Will clone from URL")
+  URL: <target-repo-url> (if cloning)
 
 Destination Paths (in tests-extension/):
   Test Files: <dest-test-path>
@@ -114,27 +162,95 @@ Ask for confirmation before proceeding.
 
 ### Phase 3: Repository Setup (2 steps)
 
-#### Step 1: Clone/Update Source Repository
+#### Step 1: Setup Source Repository
 
+**Hardcoded Source:** `git@github.com:openshift/openshift-tests-private.git`
+
+Two scenarios:
+
+**A) If user provided local source repository path:**
 ```bash
 cd <working-dir>
 mkdir -p repos
 
-# Clone or update source repo
-if [ -d "repos/source" ]; then
-    echo "Updating source repository..."
-    cd repos/source
+# Use the local repo path directly
+SOURCE_REPO="<local-source-path>"
+
+# Update if user requested
+if [ "<update-source>" = "yes" ]; then
+    echo "Updating openshift-tests-private repository..."
+    cd "$SOURCE_REPO"
     git fetch origin
     git pull
-    cd ../..
-else
-    echo "Cloning source repository..."
-    git clone <source-repo-url> repos/source
+    cd - > /dev/null
 fi
 ```
 
-#### Step 2: Clone/Update Target Repository
+**B) If no local source repository (need to clone):**
+```bash
+cd <working-dir>
+mkdir -p repos
 
+# Clone or update openshift-tests-private
+if [ -d "repos/openshift-tests-private" ]; then
+    echo "Updating openshift-tests-private repository..."
+    cd repos/openshift-tests-private
+    git fetch origin
+    git pull
+    cd ../..
+    SOURCE_REPO="repos/openshift-tests-private"
+else
+    echo "Cloning openshift-tests-private repository..."
+    git clone git@github.com:openshift/openshift-tests-private.git repos/openshift-tests-private
+    SOURCE_REPO="repos/openshift-tests-private"
+fi
+```
+
+**Set source paths based on subfolder inputs:**
+```bash
+# Set full source paths
+if [ -z "<test-subfolder>" ]; then
+    SOURCE_TEST_PATH="$SOURCE_REPO/test/extended"
+else
+    SOURCE_TEST_PATH="$SOURCE_REPO/test/extended/<test-subfolder>"
+fi
+
+if [ "<testdata-subfolder>" = "none" ]; then
+    SOURCE_TESTDATA_PATH=""
+elif [ -z "<testdata-subfolder>" ]; then
+    SOURCE_TESTDATA_PATH="$SOURCE_REPO/test/extended/testdata"
+else
+    SOURCE_TESTDATA_PATH="$SOURCE_REPO/test/extended/testdata/<testdata-subfolder>"
+fi
+```
+
+#### Step 2: Setup Target Repository
+
+Two scenarios:
+
+**A) If user provided local target repository path:**
+```bash
+# Use the local repo path directly in subsequent steps
+TARGET_REPO="<local-target-path>"
+
+# Check if it's a git repository and update if user requested
+if [ -d "$TARGET_REPO/.git" ]; then
+    if [ "<update-target>" = "yes" ]; then
+        echo "Updating target repository at $TARGET_REPO..."
+        cd "$TARGET_REPO"
+        git fetch origin
+        git pull
+        cd - > /dev/null
+        echo "Target repository updated successfully"
+    else
+        echo "Using target repository at $TARGET_REPO (not updating)"
+    fi
+else
+    echo "Warning: $TARGET_REPO is not a git repository"
+fi
+```
+
+**B) If no local target repository (need to clone):**
 ```bash
 # Clone or update target repo
 if [ -d "repos/target" ]; then
@@ -143,11 +259,15 @@ if [ -d "repos/target" ]; then
     git fetch origin
     git pull
     cd ../..
+    TARGET_REPO="repos/target"
 else
     echo "Cloning target repository..."
     git clone <target-repo-url> repos/target
+    TARGET_REPO="repos/target"
 fi
 ```
+
+**Note:** In subsequent phases, use `$SOURCE_REPO` and `$TARGET_REPO` variables instead of hardcoded `repos/source` and `repos/target` paths.
 
 ### Phase 4: Structure Creation (4 steps)
 
@@ -173,28 +293,27 @@ mkdir -p <dest-test-path>
 
 # Create destination testdata directory (customizable path)
 mkdir -p <dest-testdata-path>
-
-# Create .bingo directory for go-bindata
-mkdir -p .bingo
 ```
 
 #### Step 3: Copy Test Files to Custom Destination
 
 ```bash
 # Copy test files from source to custom destination
-cp -r ../repos/source/<source-test-path>/* <dest-test-path>/
+# Use $SOURCE_TEST_PATH variable (set in Phase 3)
+cp -r "$SOURCE_TEST_PATH"/* <dest-test-path>/
 
 # Count and display copied files
-echo "Copied $(find <dest-test-path> -name '*_test.go' | wc -l) test files"
+echo "Copied $(find <dest-test-path> -name '*_test.go' | wc -l) test files from $SOURCE_TEST_PATH"
 ```
 
 #### Step 4: Copy Testdata to Custom Destination
 
 ```bash
 # Copy testdata if it exists (skip if user specified "none")
-if [ "<source-testdata-path>" != "none" ]; then
-    cp -r ../repos/source/<source-testdata-path>/* <dest-testdata-path>/
-    echo "Copied testdata files to <dest-testdata-path>"
+# Use $SOURCE_TESTDATA_PATH variable (set in Phase 3)
+if [ -n "$SOURCE_TESTDATA_PATH" ]; then
+    cp -r "$SOURCE_TESTDATA_PATH"/* <dest-testdata-path>/
+    echo "Copied testdata files from $SOURCE_TESTDATA_PATH to <dest-testdata-path>"
 else
     echo "Skipping testdata copy (none specified)"
 fi
@@ -337,11 +456,21 @@ Create `tests-extension/bindata.mk`:
 # Ensure DEST_TESTDATA_PATH is set (customizable)
 DEST_TESTDATA_PATH ?= <dest-testdata-path>
 
+# go-bindata tool
+GO_BINDATA ?= $(shell go env GOPATH)/bin/go-bindata
+
+# Install go-bindata if not present
+.PHONY: install-go-bindata
+install-go-bindata:
+	@which go-bindata > /dev/null 2>&1 || \
+		(echo "Installing go-bindata..." && \
+		go install github.com/go-bindata/go-bindata/v3/go-bindata@latest)
+
 # Generate bindata.go from testdata directory
 .PHONY: bindata
-bindata: $(DEST_TESTDATA_PATH)/bindata.go
+bindata: install-go-bindata $(DEST_TESTDATA_PATH)/bindata.go
 
-$(DEST_TESTDATA_PATH)/bindata.go: $(GO_BINDATA) $(shell find $(DEST_TESTDATA_PATH) -type f -not -name 'bindata.go' 2>/dev/null)
+$(DEST_TESTDATA_PATH)/bindata.go: $(shell find $(DEST_TESTDATA_PATH) -type f -not -name 'bindata.go' 2>/dev/null)
 	@echo "Generating bindata from $(DEST_TESTDATA_PATH)..."
 	mkdir -p $(@D)
 	$(GO_BINDATA) -nocompress -nometadata \
@@ -359,9 +488,6 @@ clean-bindata:
 Create `tests-extension/Makefile`:
 
 ```makefile
-# Include bingo variables for tool management
-include .bingo/Variables.mk
-
 # Set custom testdata path
 DEST_TESTDATA_PATH := <dest-testdata-path>
 export DEST_TESTDATA_PATH
@@ -617,112 +743,7 @@ func GetFixtureDir() string {
 }
 ```
 
-### Phase 6: Bingo Setup for go-bindata
-
-Create the `.bingo/` directory structure for go-bindata tool management:
-
-#### Create `.bingo/go-bindata.mod`:
-
-```go
-module _
-
-go 1.19
-
-require github.com/go-bindata/go-bindata v3.1.2+incompatible
-```
-
-#### Create `.bingo/Variables.mk`:
-
-```makefile
-# Auto generated binary variables helper managed by https://github.com/bwplotka/bingo v0.9. DO NOT EDIT.
-# All tools are designed to be build inside $GOBIN.
-BINGO_DIR := $(dir $(lastword $(MAKEFILE_LIST)))
-GOPATH ?= $(shell go env GOPATH)
-GOBIN  ?= $(firstword $(subst :, ,${GOPATH}))/bin
-GO     ?= $(shell which go)
-
-# Below generated variables ensure that every time a tool under each variable is invoked, the correct version
-# will be used; reinstalling only if needed.
-# For example for go-bindata variable:
-#
-# In your main Makefile (for non array binaries):
-#
-#include .bingo/Variables.mk # Assuming -dir was set to .bingo .
-#
-#command: $(GO_BINDATA)
-#	@echo "Running go-bindata"
-#	@$(GO_BINDATA) <flags/args..>
-#
-GO_BINDATA := $(GOBIN)/go-bindata-v3.1.2+incompatible
-$(GO_BINDATA): $(BINGO_DIR)/go-bindata.mod
-	@# Install binary/ries using Go 1.14+ build command. This is using bwplotka/bingo-controlled, separate go module with pinned dependencies.
-	@echo "(re)installing $(GOBIN)/go-bindata-v3.1.2+incompatible"
-	@cd $(BINGO_DIR) && GOWORK=off $(GO) build -mod=mod -modfile=go-bindata.mod -o=$(GOBIN)/go-bindata-v3.1.2+incompatible github.com/go-bindata/go-bindata/go-bindata
-```
-
-#### Create `.bingo/.gitignore`:
-
-```
-# Ignore everything
-*
-
-# But not these files:
-!.gitignore
-!*.mod
-!*.sum
-!Variables.mk
-!variables.env
-!README.md
-```
-
-#### Create `.bingo/README.md`:
-
-```markdown
-# Bingo Managed Tools
-
-This directory contains Go module files for pinning development tool versions.
-
-## Tools
-
-- `go-bindata` - Embeds binary data into Go programs
-
-## Usage
-
-The Makefile automatically builds tools as needed using:
-```bash
-make bindata  # Builds go-bindata if needed and generates bindata.go
-```
-
-## How It Works
-
-- Tool versions are pinned in `*.mod` files
-- `Variables.mk` contains Makefile integration
-- Tools are built with `go build -modfile=<tool>.mod`
-- **No need to install bingo globally** - everything is self-contained
-
-## Updating Tool Versions
-
-If you have bingo installed:
-```bash
-bingo get github.com/go-bindata/go-bindata/go-bindata@<version>
-```
-
-Or manually edit `go-bindata.mod` and update the version.
-```
-
-#### Create `.gitignore` Entry:
-
-Add to `tests-extension/.gitignore`:
-
-```
-# Generated bindata file
-<dest-testdata-path>/bindata.go
-
-# Built binaries
-<extension-name>
-```
-
-### Phase 7: Test Migration (2 steps)
+### Phase 6: Test Migration (2 steps)
 
 #### Step 1: Add Testdata Import
 
@@ -786,7 +807,7 @@ configPath := testdata.GetConfig("settings.yaml")
 // "github.com/openshift/origin/test/extended/util"
 ```
 
-### Phase 8: Documentation (1 step)
+### Phase 7: Documentation (1 step)
 
 #### Generate Migration Summary
 
@@ -803,11 +824,6 @@ Successfully migrated **<extension-name>** to OpenShift Tests Extension (OTE) fr
 
 ```
 tests-extension/
-├── .bingo/                           # go-bindata tool management (committed)
-│   ├── go-bindata.mod
-│   ├── Variables.mk
-│   ├── .gitignore
-│   └── README.md
 ├── cmd/
 │   └── <extension-name>/
 │       └── main.go                   # OTE entry point
@@ -816,13 +832,12 @@ tests-extension/
 ├── <dest-testdata-path>/             # Testdata files (custom path)
 │   ├── bindata.go                    # Generated (run 'make bindata')
 │   └── fixtures.go                   # Wrapper functions
-├── repos/                            # Cloned repositories
-│   ├── source/                       # Source repo
+├── repos/                            # Cloned repositories (if not using local)
+│   ├── openshift-tests-private/      # Source repo
 │   └── target/                       # Target repo
 ├── go.mod
 ├── Makefile                          # Build targets
-├── bindata.mk                        # Bindata generation rules
-└── .gitignore
+└── bindata.mk                        # Bindata generation rules
 ```
 
 ## Configuration
@@ -830,11 +845,13 @@ tests-extension/
 **Extension:** <extension-name>
 **Working Directory:** <working-dir>
 
-**Source Repository:** <source-repo-url>
-  - Test Files: <source-test-path>
-  - Testdata: <source-testdata-path>
+**Source Repository:** git@github.com:openshift/openshift-tests-private.git
+  - Local Path: <local-source-path> (or "Cloned to repos/openshift-tests-private")
+  - Test Subfolder: test/extended/<test-subfolder>/
+  - Testdata Subfolder: test/extended/testdata/<testdata-subfolder>/
 
 **Target Repository:** <target-repo-url>
+  - Local Path: <local-target-path> (or "Cloned to repos/target")
 
 **Destination Paths:** (⭐ Customized)
   - Test Files: <dest-test-path>
@@ -847,13 +864,7 @@ tests-extension/
 - ✅ `<dest-testdata-path>/fixtures.go` - Testdata wrapper functions
 - ✅ `go.mod` - Go module with OTE dependencies
 - ✅ `Makefile` - Build targets (custom testdata path: <dest-testdata-path>)
-- ✅ `bindata.mk` - Bindata generation rules
-
-### Bingo Infrastructure
-- ✅ `.bingo/go-bindata.mod` - Pinned go-bindata version
-- ✅ `.bingo/Variables.mk` - Makefile integration
-- ✅ `.bingo/.gitignore` - Bingo directory gitignore
-- ✅ `.bingo/README.md` - Documentation
+- ✅ `bindata.mk` - Bindata generation rules (auto-installs go-bindata)
 
 ### Test Files
 - ✅ Copied **X** test files to `<dest-test-path>/`
@@ -878,7 +889,7 @@ make bindata
 ```
 
 This creates `<dest-testdata-path>/bindata.go` with embedded test data.
-**Note:** You don't need to install bingo - the Makefile handles everything!
+**Note:** The Makefile will automatically install go-bindata if not present!
 
 ### 2. Update Dependencies
 
@@ -984,9 +995,8 @@ specs.AddAfterEach(func(res *et.ExtensionTestResult) {
 ## Important Notes
 
 - **Always run `make bindata` before building** to regenerate embedded testdata
-- **`<dest-testdata-path>/bindata.go` is in .gitignore** - regenerated on each build
-- **`.bingo/` directory IS committed** - contains tool version configuration
-- **No need to install bingo** - Makefile uses `go build -modfile`
+- **`<dest-testdata-path>/bindata.go` is generated** - not committed to git
+- **go-bindata is auto-installed** - Makefile uses `go install` if not present
 - **Use `testdata.FixturePath()`** in tests to replace `compat_otp.FixturePath()`
 - **Cleanup is automatic** - `CleanupFixtures()` hook is already added
 
@@ -1000,7 +1010,7 @@ specs.AddAfterEach(func(res *et.ExtensionTestResult) {
 ### Bindata errors
 - Run `make bindata` before building
 - Check that `<dest-testdata-path>/` exists and contains files
-- Verify `.bingo/Variables.mk` is present
+- Ensure go-bindata is installed (Makefile auto-installs it)
 
 ### Platform filters not working
 - Check test name patterns (case-sensitive)

@@ -9,8 +9,9 @@ This repository contains a Claude Code slash command that automates the complete
 ## Features
 
 - 🔍 **Complete automation** - One command handles the entire migration
+- ⚡ **Simplified inputs** - Source repo hardcoded, just specify subfolder names
 - 📁 **Customizable paths** - Configure test and testdata destinations
-- 🔄 **Repository management** - Automatic cloning and updating of source/target repos
+- 🔄 **Repository management** - Use existing local repos or automatic cloning
 - 🏗️ **Structure creation** - Creates all necessary directories and files
 - 🤖 **Code generation** - Generates OTE integration boilerplate
 - 🏷️ **Pattern detection** - Identifies platform filters, labels, and test organization
@@ -28,16 +29,15 @@ Performs the complete OTE migration in one workflow:
 3. **Creates structure** - Builds tests-extension/ with customizable paths
 4. **Copies files** - Moves test files and testdata to specified destinations
 5. **Generates code** - Creates go.mod, main.go, Makefile, fixtures.go
-6. **Sets up bingo** - Configures go-bindata version management
-7. **Migrates tests** - Updates imports and FixturePath calls
-8. **Provides validation** - Gives comprehensive next steps and validation guide
+6. **Migrates tests** - Updates imports and FixturePath calls
+7. **Provides validation** - Gives comprehensive next steps and validation guide
 
 **Key Features:**
 - ⭐ **Customizable test path** (default: `test/e2e/`)
 - ⭐ **Customizable testdata path** (default: `test/testdata/`)
 - 🔄 **Automatic repository cloning/updating**
 - ✅ **Git status validation** for working directory
-- 📦 **Bingo integration** for reproducible go-bindata builds
+- 📦 **Auto-install go-bindata** for generating embedded testdata
 
 ## Quick Start
 
@@ -68,14 +68,17 @@ cd ~/my-workspace
 
 The command will collect the following information:
 
+**Source repository is always:** `git@github.com:openshift/openshift-tests-private.git`
+
 1. **Extension name** (e.g., "sdn", "router", "storage")
 2. **Working directory** where tests-extension/ will be created
-3. **Source repository URL** (where original tests are located)
-4. **Target repository URL** (component repository)
-5. **Source test file path** (default: `test/extended/`)
-6. **Source testdata path** (default: `test/extended/testdata/`)
-7. **Destination test path** ⭐ (default: `test/e2e/`) - CUSTOMIZABLE
-8. **Destination testdata path** ⭐ (default: `test/testdata/`) - CUSTOMIZABLE
+3. **Local openshift-tests-private path** ⭐ (optional - or will clone it)
+4. **Test subfolder** under test/extended/ (e.g., "networking", "router")
+5. **Testdata subfolder** under test/extended/testdata/ (default: same as test subfolder)
+6. **Local target repository path** ⭐ (optional - or clone from URL)
+7. **Target repository URL** (if not using local repo)
+8. **Destination test path** ⭐ (default: `test/e2e/`) - CUSTOMIZABLE
+9. **Destination testdata path** ⭐ (default: `test/testdata/`) - CUSTOMIZABLE
 
 ### 4. Build and Validate
 
@@ -115,12 +118,13 @@ cd ~/workspace
 # Provide inputs when prompted:
 # Extension name: sdn
 # Working directory: /home/user/workspace/sdn-migration
-# Source repo: https://github.com/openshift/origin.git
-# Target repo: https://github.com/openshift/sdn.git
-# Source test path: test/extended/networking/
-# Source testdata: test/extended/testdata/
-# Dest test path: test/e2e/              ← customizable
-# Dest testdata path: test/testdata/     ← customizable
+# Local openshift-tests-private: [Enter] or /home/user/repos/openshift-tests-private
+# Test subfolder: networking               ← subfolder under test/extended/
+# Testdata subfolder: [Enter] or networking ← subfolder under test/extended/testdata/
+# Local target repo: [Enter] or /home/user/repos/sdn
+# Target repo: git@github.com:openshift/sdn.git (if not using local)
+# Dest test path: test/e2e/                ← customizable
+# Dest testdata path: test/testdata/       ← customizable
 
 # After migration completes, navigate to tests-extension
 cd sdn-migration/tests-extension
@@ -143,11 +147,6 @@ make build
 ```
 <working-dir>/
 ├── tests-extension/                   # Main extension directory
-│   ├── .bingo/                        # go-bindata tool management
-│   │   ├── go-bindata.mod            # Pinned version
-│   │   ├── Variables.mk              # Makefile integration
-│   │   ├── .gitignore
-│   │   └── README.md
 │   ├── cmd/
 │   │   └── <extension-name>/
 │   │       └── main.go               # OTE entry point
@@ -158,10 +157,9 @@ make build
 │   │   └── fixtures.go               # Wrapper functions
 │   ├── go.mod                        # Go module
 │   ├── Makefile                      # Build targets
-│   ├── bindata.mk                    # Bindata generation
-│   └── .gitignore
-└── repos/                            # Cloned repositories
-    ├── source/                       # Source repository
+│   └── bindata.mk                    # Bindata generation
+└── repos/                            # Cloned repositories (if not using local)
+    ├── openshift-tests-private/      # Source repository
     └── target/                       # Target repository
 ```
 
@@ -190,16 +188,9 @@ Comprehensive testdata wrapper with:
 
 Build system with:
 - Custom testdata path configuration
-- Automatic go-bindata building from .bingo
+- Automatic go-bindata installation (via `go install`)
 - Bindata generation target
 - Build, test, list, clean targets
-
-#### 4. `.bingo/` Directory
-
-Tool version management:
-- `go-bindata.mod` - Pinned go-bindata version
-- `Variables.mk` - Makefile integration
-- No need to install bingo globally!
 
 ## Customization After Migration
 
@@ -297,8 +288,8 @@ The migration tool automatically detects and handles:
 
 ### Bindata generation fails
 - Ensure testdata directory exists and contains files
-- Check that `.bingo/Variables.mk` is present
-- Verify go-bindata builds successfully: `make bindata`
+- Verify go-bindata is installed (Makefile auto-installs it)
+- Run: `make bindata`
 
 ### Platform filters not working
 - Verify the filter pattern matches your test naming
@@ -343,13 +334,20 @@ You can run multiple migrations in the same workspace:
 
 Each migration gets its own isolated `tests-extension/` and `repos/` directories.
 
-### Updating Repositories
+### Using Local or Remote Repositories
 
-The tool checks if repositories are already cloned:
-- **First run:** Clones repositories from URLs
-- **Subsequent runs:** Updates existing clones with `git fetch && git pull`
+The tool provides flexible repository options:
+- **Use existing local repositories:** Provide paths to your already cloned repos
+  - Optionally update them with `git fetch && git pull` when prompted
+  - Useful when you already have repos checked out with specific branches
+- **Clone from URLs:** Leave local paths empty to clone fresh copies
+  - **First run:** Clones repositories from URLs into `repos/` directory
+  - **Subsequent runs:** Updates existing clones with `git fetch && git pull`
 
-This allows you to re-run the migration with updated source code.
+This flexibility allows you to:
+- Work with specific branches in your local repos
+- Re-run the migration with updated source code
+- Avoid redundant cloning if you already have the repositories
 
 ## Repository Structure
 
@@ -409,7 +407,23 @@ Contributions welcome! To improve the migration tool:
 
 ## What's New
 
-### Latest Changes (v2.0)
+### Latest Changes (v2.3)
+
+- ✅ **Simplified inputs** - Source repo hardcoded to `openshift-tests-private`
+- ✅ **Subfolder-based paths** - Just specify subfolder names under test/extended/
+- ✅ **Fewer questions** - Reduced from 13 to 9-12 inputs (conditional)
+
+### Previous Changes (v2.2)
+
+- ✅ **Removed all hidden files/directories** - No `.bingo/` or `.gitignore` created
+- ✅ **Simpler go-bindata setup** - Auto-installs via `go install` (no bingo needed)
+- ✅ **Cleaner output** - No unnecessary infrastructure files
+
+### Previous Changes (v2.1)
+
+- ✅ **Local repository support** - Use existing local repos instead of cloning
+
+### Previous Changes (v2.0)
 
 - ✅ **Unified workflow** - Single `/migrate-ote` command (removed `/analyze-for-ote`)
 - ✅ **Customizable paths** - Test and testdata destinations are fully configurable
