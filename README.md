@@ -14,6 +14,8 @@ This repository contains a Claude Code slash command that automates the complete
 - 🔄 **Repository management** - Use existing local repos or automatic cloning
 - 🏗️ **Structure creation** - Creates all necessary directories and files
 - 🤖 **Code generation** - Generates OTE integration boilerplate
+- 📦 **Proper Go modules** - Follows the 4-step Go module initialization workflow
+- ✅ **Build verification** - Automatically verifies the build works before completion
 - 🏷️ **Pattern detection** - Identifies platform filters, labels, and test organization
 - 📊 **Comprehensive reports** - Detailed migration summary with next steps
 
@@ -24,20 +26,72 @@ This repository contains a Claude Code slash command that automates the complete
 Performs the complete OTE migration in one workflow:
 
 **What it does:**
-1. **Collects user inputs** - Extension name, directories, repository URLs, custom paths
-2. **Sets up repositories** - Clones/updates source and target repositories
-3. **Creates structure** - Builds tests-extension/ with customizable paths
-4. **Copies files** - Moves test files and testdata to specified destinations
-5. **Generates code** - Creates go.mod, main.go, Makefile, fixtures.go
-6. **Migrates tests** - Updates imports and FixturePath calls
-7. **Provides validation** - Gives comprehensive next steps and validation guide
+1. **Collects user inputs** - Extension name, directories, repository URLs
+2. **Sets up repositories** - Clones/updates source and target repositories (using smart remote detection)
+3. **Creates structure** - Builds tests-extension/ with test/e2e and test/testdata directories
+4. **Copies files** - Moves test files to test/e2e/ and testdata to test/testdata/
+5. **Vendors dependencies** - Automatically vendors Go dependencies (compat_otp, exutil, etc.)
+6. **Generates code** - Creates go.mod, cmd/main.go, Makefile, fixtures.go
+7. **Migrates tests** - Updates imports and FixturePath calls
+8. **Provides validation** - Gives comprehensive next steps and validation guide
 
 **Key Features:**
-- ⭐ **Customizable test path** (default: `test/e2e/`)
-- ⭐ **Customizable testdata path** (default: `test/testdata/`)
-- 🔄 **Automatic repository cloning/updating**
+- 🔄 **Smart repository management** with remote detection
+- 📦 **Automatic dependency vendoring** (compat_otp, exutil, etc.)
+- 📁 **Two directory strategies** - multi-module or single-module
 - ✅ **Git status validation** for working directory
-- 📦 **Auto-install go-bindata** for generating embedded testdata
+- 🛠️ **Auto-install go-bindata** for generating embedded testdata
+
+## Directory Structure Strategies
+
+Choose the strategy that best fits your repository:
+
+### Option 1: Multi-Module Strategy (Recommended for existing repos)
+
+**Best for:** Component repos with existing `cmd/` and `test/` directories
+
+**Structure:**
+```
+your-repo/                           # Existing repository root
+├── cmd/
+│   └── extension/main.go           # OTE extension binary
+├── test/
+│   ├── e2e/                        # Test files
+│   │   └── go.mod                  # Separate test module
+│   ├── testdata/                   # Test data
+│   ├── Makefile                    # Test build targets
+│   └── bindata.mk                  # Bindata generation
+├── go.mod                          # Root module (updated with replace section)
+└── Makefile                        # Root Makefile (updated)
+```
+
+**Benefits:**
+- Integrates cleanly into existing repository structure
+- Keeps test dependencies separate from main module
+- Uses Go workspace/replace directive pattern
+- Tests live alongside existing code
+
+### Option 2: Single-Module Strategy (Isolated)
+
+**Best for:** Standalone test extensions or prototyping
+
+**Structure:**
+```
+working-dir/
+└── tests-extension/                 # Isolated directory
+    ├── cmd/main.go                 # OTE entry point
+    ├── test/
+    │   ├── e2e/                    # Test files
+    │   └── testdata/               # Test data
+    ├── vendor/                     # Vendored dependencies
+    └── go.mod                      # Single module
+```
+
+**Benefits:**
+- Self-contained and portable
+- No changes to existing repository
+- Easy to move or distribute separately
+- Simpler module management
 
 ## Quick Start
 
@@ -77,31 +131,32 @@ The command will collect the following information:
 5. **Testdata subfolder** under test/extended/testdata/ (default: same as test subfolder)
 6. **Local target repository path** ⭐ (optional - or clone from URL)
 7. **Target repository URL** (if not using local repo)
-8. **Destination test path** ⭐ (default: `test/e2e/`) - CUSTOMIZABLE
-9. **Destination testdata path** ⭐ (default: `test/testdata/`) - CUSTOMIZABLE
 
 ### 4. Build and Validate
 
-After migration completes:
+After migration completes, the tool will have already:
+1. ✅ Initialized Go modules (`go mod init`)
+2. ✅ Added dependencies (`go get`)
+3. ✅ Resolved all transitive dependencies (`go mod tidy`)
+4. ✅ Verified the build works (`go build`)
+
+You should have these files ready to commit:
+- `go.mod` and `go.sum` (both root and test modules for multi-module strategy)
+- All generated code files (main.go, fixtures.go, Makefile, etc.)
+
+**Optional: Manual validation:**
 
 ```bash
-cd <working-dir>/tests-extension
-
-# Generate bindata
-make bindata
-
-# Update dependencies
-go get github.com/openshift-eng/openshift-tests-extension@latest
-go mod tidy
-
-# Build extension
-make build
+cd <working-dir>/tests-extension  # or <working-dir> for multi-module
 
 # List tests to verify
-make list
+make list  # or make list-tests for multi-module
 
 # Test platform filtering
 ./<extension-name> run --platform=aws --dry-run
+
+# Run actual tests
+./<extension-name> run
 ```
 
 ## Example Workflow
@@ -123,8 +178,6 @@ cd ~/workspace
 # Testdata subfolder: [Enter] or networking ← subfolder under test/extended/testdata/
 # Local target repo: [Enter] or /home/user/repos/sdn
 # Target repo: git@github.com:openshift/sdn.git (if not using local)
-# Dest test path: test/e2e/                ← customizable
-# Dest testdata path: test/testdata/       ← customizable
 
 # After migration completes, navigate to tests-extension
 cd sdn-migration/tests-extension
@@ -148,14 +201,16 @@ make build
 <working-dir>/
 ├── tests-extension/                   # Main extension directory
 │   ├── cmd/
-│   │   └── <extension-name>/
-│   │       └── main.go               # OTE entry point
-│   ├── <dest-test-path>/             # Test files (CUSTOMIZABLE)
-│   │   └── *_test.go
-│   ├── <dest-testdata-path>/         # Testdata (CUSTOMIZABLE)
-│   │   ├── bindata.go                # Generated
-│   │   └── fixtures.go               # Wrapper functions
+│   │   └── main.go                   # OTE entry point
+│   ├── test/
+│   │   ├── e2e/                      # Test files
+│   │   │   └── *_test.go
+│   │   └── testdata/                 # Testdata
+│   │       ├── bindata.go            # Generated
+│   │       └── fixtures.go           # Wrapper functions
+│   ├── vendor/                       # Vendored dependencies (auto-generated)
 │   ├── go.mod                        # Go module
+│   ├── go.sum                        # Dependency checksums
 │   ├── Makefile                      # Build targets
 │   └── bindata.mk                    # Bindata generation
 └── repos/                            # Cloned repositories (if not using local)
@@ -165,15 +220,15 @@ make build
 
 ### Generated Code Files
 
-#### 1. `cmd/<extension-name>/main.go`
+#### 1. `cmd/main.go`
 
 Complete OTE entry point with:
 - Extension and suite registration
 - Platform filters (from labels and test names)
 - Testdata validation and cleanup hooks
-- Test package imports (using custom paths)
+- Test package imports (test/e2e and test/testdata)
 
-#### 2. `<dest-testdata-path>/fixtures.go`
+#### 2. `test/testdata/fixtures.go`
 
 Comprehensive testdata wrapper with:
 - `FixturePath()` - Replaces `compat_otp.FixturePath()`
@@ -187,16 +242,15 @@ Comprehensive testdata wrapper with:
 #### 3. `Makefile` and `bindata.mk`
 
 Build system with:
-- Custom testdata path configuration
 - Automatic go-bindata installation (via `go install`)
-- Bindata generation target
+- Bindata generation target (test/testdata/)
 - Build, test, list, clean targets
 
 ## Customization After Migration
 
 ### Add More Environment Filters
 
-Edit `cmd/<extension-name>/main.go`:
+Edit `cmd/main.go`:
 
 ```go
 // Network filter
@@ -288,8 +342,9 @@ The migration tool automatically detects and handles:
 
 ### Bindata generation fails
 - Ensure testdata directory exists and contains files
-- Verify go-bindata is installed (Makefile auto-installs it)
-- Run: `make bindata`
+- The Makefile will auto-install go-bindata if not present
+- If installation fails, manually install: `go install github.com/go-bindata/go-bindata/v3/go-bindata@latest`
+- Then run: `make bindata`
 
 ### Platform filters not working
 - Verify the filter pattern matches your test naming
@@ -297,24 +352,6 @@ The migration tool automatically detects and handles:
 - Test with: `./<extension> run --platform=aws --dry-run`
 
 ## Advanced Usage
-
-### Specifying Custom Paths
-
-When prompted for destination paths, you can specify any valid relative path:
-
-**Example - Using pkg/ directory:**
-- Destination test path: `pkg/e2e/tests/`
-- Destination testdata path: `pkg/e2e/testdata/`
-
-**Example - Matching source structure:**
-- Destination test path: `test/extended/`
-- Destination testdata path: `test/extended/testdata/`
-
-The tool will:
-- Create the directories automatically
-- Update all import paths in generated code
-- Configure Makefile with custom paths
-- Update bindata generation to use custom paths
 
 ### Working with Multiple Extensions
 
@@ -339,7 +376,9 @@ Each migration gets its own isolated `tests-extension/` and `repos/` directories
 The tool provides flexible repository options:
 - **Use existing local repositories:** Provide paths to your already cloned repos
   - Optionally update them with `git fetch && git pull` when prompted
-  - Useful when you already have repos checked out with specific branches
+  - **Automatic checkout:** If not on main/master, automatically checks out main/master before updating
+  - **Branch detection:** Tries main first, falls back to master
+  - Ensures updates always happen from the default branch
 - **Clone from URLs:** Leave local paths empty to clone fresh copies
   - **First run:** Clones repositories from URLs into `repos/` directory
   - **Subsequent runs:** Updates existing clones with `git fetch && git pull`
@@ -348,6 +387,7 @@ This flexibility allows you to:
 - Work with specific branches in your local repos
 - Re-run the migration with updated source code
 - Avoid redundant cloning if you already have the repositories
+- Safe updates with automatic checkout to main/master
 
 ## Repository Structure
 
@@ -407,7 +447,53 @@ Contributions welcome! To improve the migration tool:
 
 ## What's New
 
-### Latest Changes (v2.3)
+### Latest Changes (v2.9)
+
+- ✅ **Proper Go module initialization sequence** - Now follows the correct 4-step workflow:
+  1. `go mod init` - Creates go.mod with module declaration
+  2. `go get` - Adds dependencies with specific versions
+  3. `go mod tidy` - Resolves all transitive dependencies
+  4. `go build` - Verifies everything works before commit
+- ✅ **Fixed go.mod replace directive** - Removes invalid local filesystem replace directives for github.com/openshift/origin
+- ✅ **Added Dockerfile updates** - Following machine-config-operator PR #4665 pattern for building OTE binary
+- ✅ **Added tests-ext-build Makefile target** - Proper OTE binary compilation target matching OpenShift conventions
+- ✅ **Improved build process** - Binary compression with gzip and proper placement in /usr/bin/
+- ✅ **go.sum generation** - Automatically creates and validates go.sum files for both root and test modules
+
+### Previous Changes (v2.8)
+
+- ✅ **Automatic branch checkout** - Auto-switches to main/master before git pull
+- ✅ **Smart branch detection** - Tries main first, falls back to master
+- ✅ **Safe updates** - Ensures repositories are always updated from default branch
+- ✅ **Error handling** - Exits gracefully if neither main nor master exists
+
+### Previous Changes (v2.7)
+
+- ✅ **Multi-module go.mod location** - Test module now at `test/e2e/go.mod` (not `test/go.mod`)
+- ✅ **Smart replace directive** - Automatically adds to existing replace section in go.mod
+- ✅ **Dockerfile integration** - Added complete guide for building extension binary in component images
+- ✅ **Updated structure** - Cleaner separation: `test/e2e/` for code and module, `test/testdata/` for data
+
+### Previous Changes (v2.6)
+
+- ✅ **Two directory strategies** - Choose between multi-module (integrated) or single-module (isolated)
+- ✅ **Multi-module support** - Integrate into existing repos with separate test module and replace directive
+- ✅ **Single-module support** - Create isolated tests-extension directory (original approach)
+- ✅ **Flexible module management** - Separate go.mod for tests in multi-module strategy
+
+### Previous Changes (v2.5)
+
+- ✅ **Hardcoded destination paths** - Test files always go to `test/e2e/`, testdata to `test/testdata/`
+- ✅ **Simplified inputs** - Reduced from 9-12 inputs to 7-10 inputs (removed customizable paths)
+- ✅ **Standardized structure** - Consistent directory layout across all migrations
+
+### Previous Changes (v2.4)
+
+- ✅ **Simplified cmd structure** - Creates `cmd/main.go` directly (no nested extension-name directory)
+- ✅ **Automatic vendoring** - Vendors Go dependencies (compat_otp, exutil) after copying test files
+- ✅ **Smart git cloning** - Uses remote detection pattern to avoid duplicate clones
+
+### Previous Changes (v2.3)
 
 - ✅ **Simplified inputs** - Source repo hardcoded to `openshift-tests-private`
 - ✅ **Subfolder-based paths** - Just specify subfolder names under test/extended/

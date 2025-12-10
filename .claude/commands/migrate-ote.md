@@ -24,7 +24,7 @@ The openshift-tests-extension framework allows external repositories to contribu
 
 No files to delete in this phase.
 
-### Phase 2: User Input Collection (up to 12 inputs, some conditional)
+### Phase 2: User Input Collection (up to 10 inputs, some conditional)
 
 Collect all necessary information from the user before starting the migration.
 
@@ -34,18 +34,49 @@ Collect all necessary information from the user before starting the migration.
 
 Ask: "What is the name of your extension?"
 - Example: "sdn", "router", "storage", "cluster-network-operator"
-- This will be used for directory names and identifiers
+- This will be used for the binary name and identifiers
 
-#### Input 2: Working Directory
+#### Input 2: Directory Structure Strategy
 
-Ask: "What is the working directory path where the tests-extension will be created?"
-- Explain: This is where we'll create the `tests-extension/` directory structure
+Ask: "Which directory structure strategy do you want to use?"
+
+**Option 1: Multi-module strategy (integrate into existing repo)**
+- Integrates into existing repository structure
+- Uses existing `cmd/` and `test/` directories
+- Files created:
+  - `cmd/extension/main.go` - Extension binary
+  - `test/e2e/*.go` - Test files
+  - `test/testdata/` - Test data
+  - `test/e2e/go.mod` - Separate module for test dependencies
+- Root `go.mod` updated with OTE dependency and replace directive
+- Best for: Component repos with existing `cmd/` and `test/` structure
+
+**Option 2: Single-module strategy (isolated directory)**
+- Creates isolated `tests-extension/` directory
+- Self-contained with single `go.mod`
+- Files created:
+  - `tests-extension/cmd/main.go`
+  - `tests-extension/test/e2e/*.go`
+  - `tests-extension/test/testdata/`
+  - `tests-extension/go.mod`
+- No changes to existing repo structure
+- Best for: Standalone test extensions or repos without existing test structure
+
+User selects: **1** or **2**
+
+Store the selection in variable: `<structure-strategy>` (value: "multi-module" or "single-module")
+
+#### Input 3: Working Directory
+
+Ask: "What is the working directory path?"
+- **If multi-module strategy**: This should be the root of the target component repository
+- **If single-module strategy**: This is where we'll create the `tests-extension/` directory
 - Options:
   - Provide an existing directory path
   - Provide a new directory path (we'll create it)
-- Example: `/home/user/workspace/my-extension-tests`
+- Example: `/home/user/repos/sdn` (for multi-module) or `/home/user/workspace/sdn-migration` (for single-module)
 
-#### Input 3: Validate Git Status (if existing directory)
+#### Input 4: Validate Git Status (if existing directory)
 
 If the working directory already exists:
 - Check if it's a git repository
@@ -53,14 +84,14 @@ If the working directory already exists:
 - If there are uncommitted changes, ask user to commit or stash them first
 - If no, continue without git validation
 
-#### Input 4: Local Source Repository (Optional)
+#### Input 5: Local Source Repository (Optional)
 
 Ask: "Do you have a local clone of openshift-tests-private? If yes, provide the path (or press Enter to clone it):"
 - If provided: Use this existing local repository
 - If empty: Will clone `git@github.com:openshift/openshift-tests-private.git`
 - Example: `/home/user/repos/openshift-tests-private`
 
-#### Input 5: Update Local Source Repository (if local source provided)
+#### Input 6: Update Local Source Repository (if local source provided)
 
 If a local source repository path was provided:
 Ask: "Do you want to update the local source repository? (git fetch && git pull) [Y/n]:"
@@ -68,43 +99,52 @@ Ask: "Do you want to update the local source repository? (git fetch && git pull)
 - If yes: Run `git fetch && git pull` in the local repo
 - If no: Use current state
 
-#### Input 6: Source Test Subfolder
+#### Input 7: Source Test Subfolder
 
 Ask: "What is the test subfolder name under test/extended/?"
 - Example: "networking", "router", "storage", "templates"
 - This will be used as: `test/extended/<subfolder>/`
 - Leave empty to use all of `test/extended/`
 
-#### Input 7: Source Testdata Subfolder (Optional)
+#### Input 8: Source Testdata Subfolder (Optional)
 
 Ask: "What is the testdata subfolder name under test/extended/testdata/? (or press Enter to use same as test subfolder)"
-- Default: Same as Input 6 (test subfolder)
+- Default: Same as Input 7 (test subfolder)
 - Example: "networking", "router", etc.
 - This will be used as: `test/extended/testdata/<subfolder>/`
 - Enter "none" if no testdata exists
 
-#### Input 8: Local Target Repository (Optional)
+#### Input 9: Local Target Repository (Optional - skip for multi-module)
 
+**Skip this input if multi-module strategy** - the working directory IS the target repo.
+
+**For single-module strategy only:**
 Ask: "Do you have a local clone of the target repository? If yes, provide the path (or press Enter to clone from URL):"
 - If provided: Use this existing local repository
   - Can be absolute path: `/home/user/repos/sdn`
   - Can be relative path: `../sdn`
   - Can be current directory: `.`
-- If empty: Will ask for URL to clone (Input 9)
-- After providing a path, you will be asked in Input 10 if you want to update it
+- If empty: Will ask for URL to clone (Input 10)
+- After providing a path, you will be asked in Input 11 if you want to update it
 
-#### Input 9: Target Repository URL (if no local target provided)
+#### Input 10: Target Repository URL (if no local target provided and single-module)
 
-If no local target repository was provided in Input 8:
+**Skip this input if multi-module strategy.**
+
+**For single-module strategy only:**
+If no local target repository was provided in Input 9:
 Ask: "What is the Git URL of the target repository (component repository)?"
 - Example: `git@github.com:openshift/sdn.git`
 - This is where the OTE integration will be added
 
-#### Input 10: Update Local Target Repository (if local target provided)
+#### Input 11: Update Local Target Repository (if local target provided and single-module)
 
-**IMPORTANT:** This input is REQUIRED when Input 8 provided a local path.
+**Skip this input if multi-module strategy.**
 
-If a local target repository path was provided in Input 8:
+**For single-module strategy only:**
+**IMPORTANT:** This input is REQUIRED when Input 9 provided a local path.
+
+If a local target repository path was provided in Input 9:
 1. First, check if the path is a git repository (has `.git` directory)
 2. If it IS a git repository, ask:
    "Do you want to update the local target repository? (git fetch && git pull) [Y/n]:"
@@ -115,31 +155,43 @@ If a local target repository path was provided in Input 8:
 **Examples:**
 - User provided: `/home/user/repos/sdn` → Ask this question
 - User provided: `.` (current directory) → Ask this question if it's a git repo
-- User pressed Enter in Input 8 → Skip this question (will clone instead)
+- User pressed Enter in Input 9 → Skip this question (will clone instead)
 
 **Action:**
 - If yes: Run `cd <target-path> && git fetch origin && git pull`
 - If no: Use current state without updating
 
-#### Input 11: Destination Test Path (⭐ CUSTOMIZABLE)
-
-Ask: "What is the destination path for test files in tests-extension?"
-- Default: `test/e2e/`
-- This is customizable - users can specify any path
-- Example: `test/integration/`, `pkg/tests/`
-
-#### Input 12: Destination Testdata Path (⭐ CUSTOMIZABLE)
-
-Ask: "What is the destination path for testdata in tests-extension?"
-- Default: `test/testdata/`
-- This is customizable - users can specify any path
-- Example: `pkg/testdata/`, `test/fixtures/`
-
 **Display all collected inputs** for user confirmation:
+
+**For Multi-Module Strategy:**
 ```
 Migration Configuration:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Extension: <extension-name>
+Strategy: Multi-module (integrate into existing repo)
+Working Directory: <working-dir> (target repo root)
+
+Source Repository (openshift-tests-private):
+  URL: git@github.com:openshift/openshift-tests-private.git
+  Local Path: <local-source-path> (or "Will clone")
+  Test Subfolder: test/extended/<test-subfolder>/
+  Testdata Subfolder: test/extended/testdata/<testdata-subfolder>/
+
+Destination Structure (in target repo):
+  Extension Binary: cmd/extension/main.go
+  Test Files: test/e2e/*.go
+  Testdata: test/testdata/
+  Test Module: test/e2e/go.mod (separate module)
+  Root go.mod: Will be updated with OTE dependency and replace directive
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+**For Single-Module Strategy:**
+```
+Migration Configuration:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Extension: <extension-name>
+Strategy: Single-module (isolated directory)
 Working Directory: <working-dir>
 
 Source Repository (openshift-tests-private):
@@ -152,9 +204,11 @@ Target Repository:
   Local Path: <local-target-path> (or "Will clone from URL")
   URL: <target-repo-url> (if cloning)
 
-Destination Paths (in tests-extension/):
-  Test Files: <dest-test-path>
-  Testdata: <dest-testdata-path>
+Destination Structure (in tests-extension/):
+  Extension Binary: tests-extension/cmd/main.go
+  Test Files: tests-extension/test/e2e/*.go
+  Testdata: tests-extension/test/testdata/
+  Module: tests-extension/go.mod (single module)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
 
@@ -180,8 +234,33 @@ SOURCE_REPO="<local-source-path>"
 if [ "<update-source>" = "yes" ]; then
     echo "Updating openshift-tests-private repository..."
     cd "$SOURCE_REPO"
+
+    # Check current branch and checkout to main/master if needed
+    CURRENT_BRANCH=$(git branch --show-current)
+    if [ "$CURRENT_BRANCH" != "main" ] && [ "$CURRENT_BRANCH" != "master" ]; then
+        echo "Repository is currently on branch '$CURRENT_BRANCH'"
+
+        # Try to checkout main first, fall back to master
+        if git show-ref --verify --quiet refs/heads/main; then
+            echo "Checking out main branch..."
+            git checkout main
+            TARGET_BRANCH="main"
+        elif git show-ref --verify --quiet refs/heads/master; then
+            echo "Checking out master branch..."
+            git checkout master
+            TARGET_BRANCH="master"
+        else
+            echo "Error: Neither 'main' nor 'master' branch exists"
+            cd - > /dev/null
+            exit 1
+        fi
+    else
+        TARGET_BRANCH="$CURRENT_BRANCH"
+    fi
+
+    echo "On branch $TARGET_BRANCH, updating..."
     git fetch origin
-    git pull
+    git pull origin "$TARGET_BRANCH"
     cd - > /dev/null
 fi
 ```
@@ -191,12 +270,21 @@ fi
 cd <working-dir>
 mkdir -p repos
 
-# Clone or update openshift-tests-private
+# Check if we already have a remote configured for openshift-tests-private
 if [ -d "repos/openshift-tests-private" ]; then
-    echo "Updating openshift-tests-private repository..."
     cd repos/openshift-tests-private
-    git fetch origin
-    git pull
+    SOURCE_REMOTE=$(git remote -v | grep 'openshift/openshift-tests-private' | head -1 | awk '{print $1}')
+
+    if [ -n "$SOURCE_REMOTE" ]; then
+        echo "Updating openshift-tests-private from remote: $SOURCE_REMOTE"
+        git fetch "$SOURCE_REMOTE"
+        git pull "$SOURCE_REMOTE" master || git pull "$SOURCE_REMOTE" main
+    else
+        echo "No remote found for openshift-tests-private, adding origin..."
+        git remote add origin git@github.com:openshift/openshift-tests-private.git
+        git fetch origin
+        git pull origin master || git pull origin main
+    fi
     cd ../..
     SOURCE_REPO="repos/openshift-tests-private"
 else
@@ -226,6 +314,24 @@ fi
 
 #### Step 2: Setup Target Repository
 
+**For Multi-Module Strategy:**
+```bash
+# Working directory IS the target repository
+TARGET_REPO="<working-dir>"
+echo "Using target repository at: $TARGET_REPO"
+
+# Extract module name from go.mod if it exists
+if [ -f "$TARGET_REPO/go.mod" ]; then
+    MODULE_NAME=$(grep '^module ' "$TARGET_REPO/go.mod" | awk '{print $2}')
+    echo "Found existing module: $MODULE_NAME"
+else
+    echo "Warning: No go.mod found in target repository"
+    echo "Will create test/go.mod for test dependencies"
+fi
+```
+
+**For Single-Module Strategy:**
+
 Two scenarios:
 
 **A) If user provided local target repository path:**
@@ -238,10 +344,36 @@ if [ -d "$TARGET_REPO/.git" ]; then
     if [ "<update-target>" = "yes" ]; then
         echo "Updating target repository at $TARGET_REPO..."
         cd "$TARGET_REPO"
+
+        # Check current branch and checkout to main/master if needed
+        CURRENT_BRANCH=$(git branch --show-current)
+        if [ "$CURRENT_BRANCH" != "main" ] && [ "$CURRENT_BRANCH" != "master" ]; then
+            echo "Repository is currently on branch '$CURRENT_BRANCH'"
+
+            # Try to checkout main first, fall back to master
+            if git show-ref --verify --quiet refs/heads/main; then
+                echo "Checking out main branch..."
+                git checkout main
+                TARGET_BRANCH="main"
+            elif git show-ref --verify --quiet refs/heads/master; then
+                echo "Checking out master branch..."
+                git checkout master
+                TARGET_BRANCH="master"
+            else
+                echo "Error: Neither 'main' nor 'master' branch exists"
+                cd - > /dev/null
+                exit 1
+            fi
+        else
+            TARGET_BRANCH="$CURRENT_BRANCH"
+        fi
+
+        echo "On branch $TARGET_BRANCH, updating..."
         git fetch origin
-        git pull
-        cd - > /dev/null
+        git pull origin "$TARGET_BRANCH"
         echo "Target repository updated successfully"
+
+        cd - > /dev/null
     else
         echo "Using target repository at $TARGET_REPO (not updating)"
     fi
@@ -252,12 +384,24 @@ fi
 
 **B) If no local target repository (need to clone):**
 ```bash
+# Extract repository name from URL for remote detection
+TARGET_REPO_NAME=$(echo "<target-repo-url>" | sed 's/.*\/\([^/]*\)\.git/\1/' | sed 's/.*\/\([^/]*\)$/\1/')
+
 # Clone or update target repo
 if [ -d "repos/target" ]; then
-    echo "Updating target repository..."
     cd repos/target
-    git fetch origin
-    git pull
+    TARGET_REMOTE=$(git remote -v | grep "$TARGET_REPO_NAME" | head -1 | awk '{print $1}')
+
+    if [ -n "$TARGET_REMOTE" ]; then
+        echo "Updating target repository from remote: $TARGET_REMOTE"
+        git fetch "$TARGET_REMOTE"
+        git pull "$TARGET_REMOTE" master || git pull "$TARGET_REMOTE" main
+    else
+        echo "No remote found for target repository, adding origin..."
+        git remote add origin <target-repo-url>
+        git fetch origin
+        git pull origin master || git pull origin main
+    fi
     cd ../..
     TARGET_REPO="repos/target"
 else
@@ -269,83 +413,260 @@ fi
 
 **Note:** In subsequent phases, use `$SOURCE_REPO` and `$TARGET_REPO` variables instead of hardcoded `repos/source` and `repos/target` paths.
 
-### Phase 4: Structure Creation (4 steps)
+### Phase 4: Structure Creation (5 steps)
 
-#### Step 1: Create tests-extension/ Directory
+#### Step 1: Create Directory Structure
 
+**For Multi-Module Strategy:**
+```bash
+cd <working-dir>
+
+# Create extension binary directory
+mkdir -p cmd/extension
+
+# Create test directories
+mkdir -p test/e2e
+mkdir -p test/testdata
+
+echo "Created multi-module structure in existing repository"
+```
+
+**For Single-Module Strategy:**
 ```bash
 cd <working-dir>
 mkdir -p tests-extension
-```
 
-#### Step 2: Create cmd/ and User-Specified Test Directories
-
-Create the directory structure with user-specified paths:
-
-```bash
 cd tests-extension
 
-# Create cmd directory
-mkdir -p cmd/<extension-name>
+# Create cmd directory (main.go will be created directly here)
+mkdir -p cmd
 
-# Create destination test directory (customizable path)
-mkdir -p <dest-test-path>
+# Create test directories
+mkdir -p test/e2e
+mkdir -p test/testdata
 
-# Create destination testdata directory (customizable path)
-mkdir -p <dest-testdata-path>
+echo "Created single-module structure in tests-extension/"
 ```
 
-#### Step 3: Copy Test Files to Custom Destination
+#### Step 2: Copy Test Files
 
+**For Multi-Module Strategy:**
 ```bash
-# Copy test files from source to custom destination
+cd <working-dir>
+
+# Copy test files from source to test/e2e/
 # Use $SOURCE_TEST_PATH variable (set in Phase 3)
-cp -r "$SOURCE_TEST_PATH"/* <dest-test-path>/
+cp -r "$SOURCE_TEST_PATH"/* test/e2e/
 
 # Count and display copied files
-echo "Copied $(find <dest-test-path> -name '*_test.go' | wc -l) test files from $SOURCE_TEST_PATH"
+echo "Copied $(find test/e2e -name '*_test.go' | wc -l) test files from $SOURCE_TEST_PATH"
 ```
 
-#### Step 4: Copy Testdata to Custom Destination
-
+**For Single-Module Strategy:**
 ```bash
+cd <working-dir>/tests-extension
+
+# Copy test files from source to test/e2e/
+# Use $SOURCE_TEST_PATH variable (set in Phase 3)
+cp -r "$SOURCE_TEST_PATH"/* test/e2e/
+
+# Count and display copied files
+echo "Copied $(find test/e2e -name '*_test.go' | wc -l) test files from $SOURCE_TEST_PATH"
+```
+
+#### Step 3: Copy Testdata
+
+**For Multi-Module Strategy:**
+```bash
+cd <working-dir>
+
 # Copy testdata if it exists (skip if user specified "none")
 # Use $SOURCE_TESTDATA_PATH variable (set in Phase 3)
 if [ -n "$SOURCE_TESTDATA_PATH" ]; then
-    cp -r "$SOURCE_TESTDATA_PATH"/* <dest-testdata-path>/
-    echo "Copied testdata files from $SOURCE_TESTDATA_PATH to <dest-testdata-path>"
+    cp -r "$SOURCE_TESTDATA_PATH"/* test/testdata/
+    echo "Copied testdata files from $SOURCE_TESTDATA_PATH to test/testdata/"
 else
     echo "Skipping testdata copy (none specified)"
 fi
 ```
 
-### Phase 5: Code Generation (5 steps)
+**For Single-Module Strategy:**
+```bash
+cd <working-dir>/tests-extension
 
-#### Step 1: Generate go.mod
-
-Create `tests-extension/go.mod`:
-
-```go
-module github.com/<org>/<extension-name>-tests-extension
-
-go 1.21
-
-require (
-    github.com/openshift-eng/openshift-tests-extension latest
-    github.com/onsi/ginkgo/v2 latest
-    github.com/onsi/gomega latest
-)
+# Copy testdata if it exists (skip if user specified "none")
+# Use $SOURCE_TESTDATA_PATH variable (set in Phase 3)
+if [ -n "$SOURCE_TESTDATA_PATH" ]; then
+    cp -r "$SOURCE_TESTDATA_PATH"/* test/testdata/
+    echo "Copied testdata files from $SOURCE_TESTDATA_PATH to test/testdata/"
+else
+    echo "Skipping testdata copy (none specified)"
+fi
 ```
 
-Then run:
+#### Step 4: Initialize Go Modules
+
+**For Multi-Module Strategy:**
 ```bash
-cd tests-extension
+cd <working-dir>
+
+# Initialize test module if it doesn't exist
+if [ ! -f "test/e2e/go.mod" ]; then
+    echo "Creating test/e2e/go.mod for test dependencies..."
+    cd test/e2e
+    go mod init $MODULE_NAME/test/e2e
+    cd ../..
+fi
+```
+
+**Note:** For multi-module, we create a separate go.mod in the test directory. Dependencies will be managed separately from the root module.
+
+**For Single-Module Strategy:**
+```bash
+cd <working-dir>/tests-extension
+
+# Initialize go module if not already done
+if [ ! -f "go.mod" ]; then
+    go mod init github.com/<org>/<extension-name>-tests-extension
+fi
+
+# Download dependencies (including compat_otp and other test utilities)
+echo "Downloading Go dependencies for copied test files..."
+go mod download
+
+# Vendor dependencies
+echo "Vendoring dependencies..."
+go mod vendor
+
+echo "Vendored dependencies to vendor/ directory"
+```
+
+**Note:** For single-module, this ensures that dependencies like `compat_otp`, `exutil`, and other test utilities used by the copied test files are available locally.
+
+### Phase 5: Code Generation (7 steps)
+
+#### Step 1: Generate/Update go.mod Files
+
+**For Multi-Module Strategy:**
+
+First, update root go.mod:
+```bash
+cd <working-dir>
+
+# Add OTE dependency to root go.mod if not already present
+if ! grep -q "github.com/openshift-eng/openshift-tests-extension" go.mod; then
+    echo "Adding OTE dependency to root go.mod..."
+    go get github.com/openshift-eng/openshift-tests-extension@latest
+fi
+
+# Add replace directive for test module
+if ! grep -q "replace.*$MODULE_NAME/test/e2e" go.mod; then
+    echo "Adding replace directive for test module..."
+    # Check if replace section exists
+    if grep -q "^replace (" go.mod; then
+        # Add to existing replace section (before closing parenthesis)
+        sed -i '/^replace (/a\    '"$MODULE_NAME"'/test/e2e => ./test/e2e' go.mod
+    else
+        # Create new replace section
+        echo "" >> go.mod
+        echo "replace (" >> go.mod
+        echo "    $MODULE_NAME/test/e2e => ./test/e2e" >> go.mod
+        echo ")" >> go.mod
+    fi
+fi
+
 go mod tidy
 ```
 
-#### Step 2: Generate cmd/main.go
+Then, create test/e2e/go.mod following proper Go module initialization sequence:
+```bash
+cd <working-dir>/test/e2e
 
-Create `tests-extension/cmd/<extension-name>/main.go` with the custom testdata path:
+echo "Step 1: Initialize Go module..."
+# Step 1: go mod init - Creates go.mod with module declaration only
+go mod init $MODULE_NAME/test/e2e
+
+echo "Step 2: Add required dependencies..."
+# Step 2: Add dependencies (go get will update go.mod and create go.sum)
+go get github.com/openshift-eng/openshift-tests-extension@latest
+go get github.com/openshift/origin@latest
+go get github.com/onsi/ginkgo/v2@latest
+go get github.com/onsi/gomega@latest
+
+echo "Step 3: Resolve all dependencies..."
+# Step 3: go mod tidy - Resolves all transitive dependencies and cleans up
+go mod tidy
+
+# IMPORTANT: Check for and remove any invalid local replace directives
+# that might have been added by go mod tidy
+if grep -q "replace.*github.com/openshift/origin.*=>.*/" go.mod; then
+    echo "WARNING: Removing invalid local replace directive for github.com/openshift/origin"
+    sed -i '/replace.*github.com\/openshift\/origin.*=>.*\//d' go.mod
+    go mod tidy
+fi
+
+echo "Step 4: Verify go.mod and go.sum are created..."
+# Both go.mod and go.sum should now exist with resolved versions
+if [ -f "go.mod" ] && [ -f "go.sum" ]; then
+    echo "✅ go.mod and go.sum created successfully"
+    echo "Module: $(grep '^module' go.mod)"
+    echo "Dependencies: $(grep -c '^require' go.mod) direct dependencies"
+else
+    echo "❌ Error: go.mod or go.sum not created properly"
+    exit 1
+fi
+
+cd ../..
+```
+
+**For Single-Module Strategy:**
+
+Create `tests-extension/go.mod` following proper Go module initialization sequence:
+```bash
+cd <working-dir>/tests-extension
+
+echo "Step 1: Initialize Go module..."
+# Step 1: go mod init - Creates go.mod with module declaration only
+go mod init github.com/<org>/<extension-name>-tests-extension
+
+echo "Step 2: Add required dependencies..."
+# Step 2: Add dependencies (go get will update go.mod and create go.sum)
+go get github.com/openshift-eng/openshift-tests-extension@latest
+go get github.com/openshift/origin@latest
+go get github.com/onsi/ginkgo/v2@latest
+go get github.com/onsi/gomega@latest
+
+echo "Step 3: Resolve all dependencies..."
+# Step 3: go mod tidy - Resolves all transitive dependencies and cleans up
+go mod tidy
+
+# IMPORTANT: Check for and remove any invalid local replace directives
+# that might have been added by go mod tidy
+if grep -q "replace.*github.com/openshift/origin.*=>.*/" go.mod; then
+    echo "WARNING: Removing invalid local replace directive for github.com/openshift/origin"
+    sed -i '/replace.*github.com\/openshift\/origin.*=>.*\//d' go.mod
+    go mod tidy
+fi
+
+echo "Step 4: Verify go.mod and go.sum are created..."
+# Both go.mod and go.sum should now exist with resolved versions
+if [ -f "go.mod" ] && [ -f "go.sum" ]; then
+    echo "✅ go.mod and go.sum created successfully"
+    echo "Module: $(grep '^module' go.mod)"
+    echo "Dependencies: $(grep -c '^require' go.mod) direct dependencies"
+else
+    echo "❌ Error: go.mod or go.sum not created properly"
+    exit 1
+fi
+
+cd ..
+```
+
+#### Step 2: Generate Extension Binary (main.go)
+
+**For Multi-Module Strategy:**
+
+Create `cmd/extension/main.go`:
 
 ```go
 package main
@@ -363,11 +684,11 @@ import (
 	et "github.com/openshift-eng/openshift-tests-extension/pkg/extension/extensiontests"
 	g "github.com/openshift-eng/openshift-tests-extension/pkg/ginkgo"
 
-	// Import testdata package (uses custom path)
-	"github.com/<org>/<extension-name>-tests-extension/<dest-testdata-path-normalized>"
+	// Import testdata package from local test module
+	testdata "<MODULE_NAME>/test/testdata"
 
-	// Import test packages (uses custom path)
-	_ "github.com/<org>/<extension-name>-tests-extension/<dest-test-path-normalized>"
+	// Import test packages from local test module
+	_ "<MODULE_NAME>/test/e2e"
 )
 
 func main() {
@@ -443,9 +764,147 @@ func main() {
 }
 ```
 
-**Note:** Replace `<dest-testdata-path-normalized>` and `<dest-test-path-normalized>` with the paths converted to Go import format (e.g., `test/testdata` stays as `test/testdata`).
+**For Single-Module Strategy:**
+
+Create `cmd/main.go`:
+
+```go
+package main
+
+import (
+	"fmt"
+	"os"
+	"regexp"
+	"strings"
+
+	"github.com/spf13/cobra"
+
+	"github.com/openshift-eng/openshift-tests-extension/pkg/cmd"
+	e "github.com/openshift-eng/openshift-tests-extension/pkg/extension"
+	et "github.com/openshift-eng/openshift-tests-extension/pkg/extension/extensiontests"
+	g "github.com/openshift-eng/openshift-tests-extension/pkg/ginkgo"
+
+	// Import testdata package
+	"github.com/<org>/<extension-name>-tests-extension/test/testdata"
+
+	// Import test packages
+	_ "github.com/<org>/<extension-name>-tests-extension/test/e2e"
+)
+
+func main() {
+	registry := e.NewRegistry()
+	ext := e.NewExtension("<org>", "payload", "<extension-name>")
+
+	// Add main test suite
+	ext.AddSuite(e.Suite{
+		Name:    "<org>/<extension-name>/tests",
+		Parents: []string{"openshift/conformance/parallel"},
+	})
+
+	// Build test specs from Ginkgo
+	specs, err := g.BuildExtensionTestSpecsFromOpenShiftGinkgoSuite()
+	if err != nil {
+		panic(fmt.Sprintf("couldn't build extension test specs from ginkgo: %+v", err.Error()))
+	}
+
+	// Apply platform filters based on Platform: labels
+	specs.Walk(func(spec *et.ExtensionTestSpec) {
+		for label := range spec.Labels {
+			if strings.HasPrefix(label, "Platform:") {
+				platformName := strings.TrimPrefix(label, "Platform:")
+				spec.Include(et.PlatformEquals(platformName))
+			}
+		}
+	})
+
+	// Apply platform filters based on [platform:xxx] in test names
+	specs.Walk(func(spec *et.ExtensionTestSpec) {
+		re := regexp.MustCompile(` + "`\\[platform:([a-z]+)\\]`" + `)
+		if match := re.FindStringSubmatch(spec.Name); match != nil {
+			platform := match[1]
+			spec.Include(et.PlatformEquals(platform))
+		}
+	})
+
+	// Add testdata validation and cleanup hooks
+	specs.AddBeforeAll(func() {
+		// List available fixtures
+		fixtures := testdata.ListFixtures()
+		fmt.Printf("Loaded %d test fixtures\n", len(fixtures))
+
+		// Optional: Validate required fixtures
+		// requiredFixtures := []string{
+		//     "manifests/deployment.yaml",
+		// }
+		// if err := testdata.ValidateFixtures(requiredFixtures); err != nil {
+		//     panic(fmt.Sprintf("Missing required fixtures: %v", err))
+		// }
+	})
+
+	specs.AddAfterAll(func() {
+		if err := testdata.CleanupFixtures(); err != nil {
+			fmt.Printf("Warning: failed to cleanup fixtures: %v\n", err)
+		}
+	})
+
+	ext.AddSpecs(specs)
+	registry.Register(ext)
+
+	root := &cobra.Command{
+		Long: "<Extension Name> Tests",
+	}
+
+	root.AddCommand(cmd.DefaultExtensionCommands(registry)...)
+
+	if err := func() error {
+		return root.Execute()
+	}(); err != nil {
+		os.Exit(1)
+	}
+}
+```
 
 #### Step 3: Create bindata.mk
+
+**For Multi-Module Strategy:**
+
+Create `test/bindata.mk`:
+
+```makefile
+# Bindata generation for testdata files
+# This file is included by the test Makefile
+
+# Testdata path
+TESTDATA_PATH := testdata
+
+# go-bindata tool path
+GOPATH ?= $(shell go env GOPATH)
+GO_BINDATA := $(GOPATH)/bin/go-bindata
+
+# Install go-bindata if not present
+$(GO_BINDATA):
+	@echo "Installing go-bindata to $(GO_BINDATA)..."
+	@go install github.com/go-bindata/go-bindata/v3/go-bindata@latest
+	@echo "go-bindata installed successfully"
+
+# Generate bindata.go from testdata directory
+.PHONY: bindata
+bindata: $(GO_BINDATA) $(TESTDATA_PATH)/bindata.go
+
+$(TESTDATA_PATH)/bindata.go: $(GO_BINDATA) $(shell find $(TESTDATA_PATH) -type f -not -name 'bindata.go' 2>/dev/null)
+	@echo "Generating bindata from $(TESTDATA_PATH)..."
+	@mkdir -p $(@D)
+	$(GO_BINDATA) -nocompress -nometadata \
+		-pkg testdata -o $@ $(TESTDATA_PATH)/...
+	@gofmt -s -w $@
+	@echo "Bindata generated successfully at $@"
+
+.PHONY: clean-bindata
+clean-bindata:
+	rm -f $(TESTDATA_PATH)/bindata.go
+```
+
+**For Single-Module Strategy:**
 
 Create `tests-extension/bindata.mk`:
 
@@ -453,52 +912,116 @@ Create `tests-extension/bindata.mk`:
 # Bindata generation for testdata files
 # This file is included by the main Makefile
 
-# Ensure DEST_TESTDATA_PATH is set (customizable)
-DEST_TESTDATA_PATH ?= <dest-testdata-path>
+# Testdata path
+TESTDATA_PATH := test/testdata
 
-# go-bindata tool
-GO_BINDATA ?= $(shell go env GOPATH)/bin/go-bindata
+# go-bindata tool path
+GOPATH ?= $(shell go env GOPATH)
+GO_BINDATA := $(GOPATH)/bin/go-bindata
 
 # Install go-bindata if not present
-.PHONY: install-go-bindata
-install-go-bindata:
-	@which go-bindata > /dev/null 2>&1 || \
-		(echo "Installing go-bindata..." && \
-		go install github.com/go-bindata/go-bindata/v3/go-bindata@latest)
+$(GO_BINDATA):
+	@echo "Installing go-bindata to $(GO_BINDATA)..."
+	@go install github.com/go-bindata/go-bindata/v3/go-bindata@latest
+	@echo "go-bindata installed successfully"
 
 # Generate bindata.go from testdata directory
 .PHONY: bindata
-bindata: install-go-bindata $(DEST_TESTDATA_PATH)/bindata.go
+bindata: $(GO_BINDATA) $(TESTDATA_PATH)/bindata.go
 
-$(DEST_TESTDATA_PATH)/bindata.go: $(shell find $(DEST_TESTDATA_PATH) -type f -not -name 'bindata.go' 2>/dev/null)
-	@echo "Generating bindata from $(DEST_TESTDATA_PATH)..."
-	mkdir -p $(@D)
+$(TESTDATA_PATH)/bindata.go: $(GO_BINDATA) $(shell find $(TESTDATA_PATH) -type f -not -name 'bindata.go' 2>/dev/null)
+	@echo "Generating bindata from $(TESTDATA_PATH)..."
+	@mkdir -p $(@D)
 	$(GO_BINDATA) -nocompress -nometadata \
-		-pkg testdata -o $@ -prefix "$(shell dirname $(DEST_TESTDATA_PATH))" $(DEST_TESTDATA_PATH)/...
-	gofmt -s -w $@
+		-pkg testdata -o $@ -prefix "test" $(TESTDATA_PATH)/...
+	@gofmt -s -w $@
 	@echo "Bindata generated successfully at $@"
 
 .PHONY: clean-bindata
 clean-bindata:
-	rm -f $(DEST_TESTDATA_PATH)/bindata.go
+	rm -f $(TESTDATA_PATH)/bindata.go
 ```
 
-#### Step 4: Create Makefile (Using Custom Testdata Path)
+#### Step 4: Create Makefile
+
+**For Multi-Module Strategy:**
+
+Create `test/Makefile`:
+
+```makefile
+# Include bindata targets
+include bindata.mk
+
+# Build test dependencies
+.PHONY: deps
+deps:
+	cd e2e && go mod download && go mod tidy
+
+# Run tests
+.PHONY: test
+test: bindata
+	cd e2e && go test ./...
+
+.PHONY: help
+help:
+	@echo "Available targets:"
+	@echo "  bindata     - Generate bindata.go from testdata"
+	@echo "  deps        - Download and tidy test dependencies"
+	@echo "  test        - Run Go tests"
+	@echo "  clean       - Remove generated files"
+```
+
+Create root `Makefile` (or add extension target to existing one):
+
+```makefile
+# OTE binary configuration
+TESTS_EXT_DIR := ./cmd/extension
+TESTS_EXT_BINARY := <extension-name>-tests-ext
+
+# Build OTE extension binary (following machine-config-operator PR #4665 pattern)
+.PHONY: tests-ext-build
+tests-ext-build:
+	@echo "Building OTE test extension binary..."
+	@cd test && $(MAKE) bindata
+	go build -mod=vendor -o $(TESTS_EXT_DIR)/$(TESTS_EXT_BINARY) $(TESTS_EXT_DIR)
+	@echo "OTE binary built successfully at $(TESTS_EXT_DIR)/$(TESTS_EXT_BINARY)"
+
+# Alias for backward compatibility
+.PHONY: extension
+extension: tests-ext-build
+
+# List all tests
+.PHONY: list-tests
+list-tests: tests-ext-build
+	$(TESTS_EXT_DIR)/$(TESTS_EXT_BINARY) list
+
+# Clean extension binary
+.PHONY: clean-extension
+clean-extension:
+	rm -f $(TESTS_EXT_DIR)/$(TESTS_EXT_BINARY)
+	@cd test && $(MAKE) clean-bindata
+
+.PHONY: help
+help:
+	@echo "Available targets:"
+	@echo "  tests-ext-build - Build OTE extension binary (recommended)"
+	@echo "  extension       - Alias for tests-ext-build"
+	@echo "  list-tests      - List all available tests"
+	@echo "  clean-extension - Remove generated files"
+```
+
+**For Single-Module Strategy:**
 
 Create `tests-extension/Makefile`:
 
 ```makefile
-# Set custom testdata path
-DEST_TESTDATA_PATH := <dest-testdata-path>
-export DEST_TESTDATA_PATH
-
 # Include bindata targets
 include bindata.mk
 
 # Build extension binary
 .PHONY: build
 build: bindata
-	go build -o <extension-name> ./cmd/<extension-name>
+	go build -o <extension-name> ./cmd
 
 # Run tests
 .PHONY: test
@@ -518,16 +1041,24 @@ clean: clean-bindata
 .PHONY: help
 help:
 	@echo "Available targets:"
-	@echo "  bindata     - Generate bindata.go from $(DEST_TESTDATA_PATH)"
+	@echo "  bindata     - Generate bindata.go from test/testdata"
 	@echo "  build       - Build extension binary (includes bindata)"
 	@echo "  test        - Run Go tests"
 	@echo "  list        - List all available tests"
 	@echo "  clean       - Remove generated files"
 ```
 
-#### Step 5: Create fixtures.go (in Custom Testdata Path)
+#### Step 5: Create fixtures.go
 
-Create `tests-extension/<dest-testdata-path>/fixtures.go`:
+**For Multi-Module Strategy:**
+
+Create `test/testdata/fixtures.go`:
+
+**For Single-Module Strategy:**
+
+Create `tests-extension/test/testdata/fixtures.go`:
+
+**Note:** The fixtures.go content is the same for both strategies:
 
 ```go
 package testdata
@@ -743,15 +1274,65 @@ func GetFixtureDir() string {
 }
 ```
 
+#### Step 6: Update Dockerfile (Multi-Module Strategy Only)
+
+**For Multi-Module Strategy:**
+
+Following the pattern from machine-config-operator PR #4665, update the Dockerfile to build and include the OTE binary:
+
+```dockerfile
+# Example multi-stage Dockerfile update
+# Add this to your existing Dockerfile or create a new one
+
+# Build stage - Build the OTE test extension binary
+FROM registry.ci.openshift.org/ocp/builder:rhel-9-golang-1.21-openshift-4.17 AS builder
+WORKDIR /go/src/github.com/<org>/<component-name>
+
+# Copy source code
+COPY . .
+
+# Generate testdata bindata
+RUN cd test && make bindata
+
+# Build the OTE extension binary using the Makefile target
+RUN make tests-ext-build
+
+# Compress the binary (following OpenShift pattern)
+RUN gzip cmd/extension/<extension-name>-tests-ext
+
+# Final stage - Runtime image
+FROM registry.ci.openshift.org/ocp/4.17:base-rhel9
+
+# Copy the compressed OTE binary to /usr/bin/
+COPY --from=builder /go/src/github.com/<org>/<component-name>/cmd/extension/<extension-name>-tests-ext.gz /usr/bin/
+
+# ... rest of your Dockerfile (copy other binaries, set entrypoint, etc.)
+```
+
+**Key Points:**
+- The Dockerfile builds the OTE binary using the `tests-ext-build` Makefile target
+- The binary is compressed with gzip following OpenShift conventions
+- The compressed binary (.gz) is copied to `/usr/bin/` in the final image
+- The build happens in a builder stage with the Go toolchain
+- The final runtime image only contains the compressed binary
+
+**For Single-Module Strategy:**
+
+For single-module strategy, refer to the Dockerfile integration section in the migration summary (Phase 8).
+
 ### Phase 6: Test Migration (2 steps)
 
 #### Step 1: Add Testdata Import
 
-Search all test files in `<dest-test-path>` and add the testdata import:
+**For Multi-Module Strategy:**
+
+Search all test files in `test/e2e` and add the testdata import:
 
 ```bash
+cd <working-dir>
+
 # Find all test files
-find <dest-test-path> -name '*_test.go' -type f
+find test/e2e -name '*_test.go' -type f
 
 # For each file, check if it uses FixturePath and add import if needed
 ```
@@ -759,7 +1340,27 @@ find <dest-test-path> -name '*_test.go' -type f
 Add to test files:
 ```go
 import (
-    "github.com/<org>/<extension-name>-tests-extension/<dest-testdata-path-normalized>"
+    "$MODULE_NAME/test/testdata"
+)
+```
+
+**For Single-Module Strategy:**
+
+Search all test files in `tests-extension/test/e2e` and add the testdata import:
+
+```bash
+cd <working-dir>/tests-extension
+
+# Find all test files
+find test/e2e -name '*_test.go' -type f
+
+# For each file, check if it uses FixturePath and add import if needed
+```
+
+Add to test files:
+```go
+import (
+    "github.com/<org>/<extension-name>-tests-extension/test/testdata"
 )
 ```
 
@@ -769,8 +1370,8 @@ Search and replace in all test files:
 
 **Search for patterns:**
 ```bash
-grep -r "compat_otp.FixturePath" <dest-test-path>/
-grep -r "exutil.FixturePath" <dest-test-path>/
+grep -r "compat_otp.FixturePath" test/e2e/
+grep -r "exutil.FixturePath" test/e2e/
 ```
 
 **Before:**
@@ -807,42 +1408,342 @@ configPath := testdata.GetConfig("settings.yaml")
 // "github.com/openshift/origin/test/extended/util"
 ```
 
-### Phase 7: Documentation (1 step)
+### Phase 7: Dependency Resolution and Verification (3 steps)
+
+**Note:** Steps 1-2 of the proper Go module sequence (go mod init, go get) were completed in Phase 5.
+This phase handles Step 3 (go mod tidy for final cleanup) and Step 4 (verification before commit).
+
+#### Step 1: Final go mod tidy (if needed)
+
+**For Multi-Module Strategy:**
+
+```bash
+cd <working-dir>
+
+# Final tidy for root module (in case any changes were made after Phase 5)
+echo "Final dependency resolution for root module..."
+go mod tidy
+
+# Final tidy for test module
+echo "Final dependency resolution for test module..."
+cd test/e2e
+go mod tidy
+cd ../..
+
+echo "✅ Dependencies resolved and go.sum updated"
+```
+
+**For Single-Module Strategy:**
+
+```bash
+cd <working-dir>/tests-extension
+
+echo "Final dependency resolution for tests-extension module..."
+go mod tidy
+
+echo "Downloading all dependencies..."
+go mod download
+
+echo "✅ Dependencies resolved and go.sum updated"
+```
+
+#### Step 2: Download and Verify Dependencies
+
+**For Multi-Module Strategy:**
+
+```bash
+cd <working-dir>
+
+# Download dependencies for root module
+echo "Downloading dependencies for root module..."
+go mod download
+
+# Download dependencies for test module
+echo "Downloading dependencies for test module..."
+cd test/e2e
+go mod download
+cd ../..
+
+echo "All dependencies downloaded successfully"
+```
+
+**For Single-Module Strategy:**
+
+This step is combined with Step 1 for single-module strategy (see above).
+
+#### Step 3: Verify Build and Test (Required)
+
+**This is Step 3 of the Go module workflow: Build or test to verify everything works**
+
+**For Multi-Module Strategy:**
+
+```bash
+cd <working-dir>
+
+echo "========================================="
+echo "Step 3: Verifying build and dependencies"
+echo "========================================="
+
+# Generate bindata first
+echo "Generating bindata..."
+cd test && make bindata
+cd ..
+
+# Build the extension binary
+echo "Building extension binary..."
+go build -mod=vendor -o ./cmd/extension/<extension-name>-tests-ext ./cmd/extension
+
+if [ $? -eq 0 ]; then
+    echo "✅ Extension binary built successfully!"
+
+    # Run a quick test to ensure the binary works
+    echo "Testing binary execution..."
+    ./cmd/extension/<extension-name>-tests-ext --help > /dev/null 2>&1
+
+    if [ $? -eq 0 ]; then
+        echo "✅ Binary executes correctly!"
+    else
+        echo "⚠️  Binary built but --help failed"
+    fi
+
+    # Clean up test binary (will be rebuilt when needed)
+    rm -f ./cmd/extension/<extension-name>-tests-ext
+
+    echo ""
+    echo "========================================="
+    echo "Ready for Step 4: Commit go.mod and go.sum"
+    echo "========================================="
+    echo "Files to commit:"
+    echo "  - go.mod (root module)"
+    echo "  - go.sum (root module)"
+    echo "  - test/e2e/go.mod (test module)"
+    echo "  - test/e2e/go.sum (test module)"
+    echo "  - cmd/extension/main.go"
+    echo "  - test/testdata/fixtures.go"
+    echo "  - Makefile updates"
+    echo "  - Dockerfile updates"
+else
+    echo "❌ Build failed - manual intervention required"
+    echo "Common issues:"
+    echo "  - Check import paths in test files"
+    echo "  - Verify all test dependencies are available"
+    echo "  - Run 'go mod tidy' in both root and test/e2e directories"
+    echo "  - Check for invalid replace directives in go.mod"
+    exit 1
+fi
+```
+
+**For Single-Module Strategy:**
+
+```bash
+cd <working-dir>/tests-extension
+
+echo "========================================="
+echo "Step 3: Verifying build and dependencies"
+echo "========================================="
+
+# Generate bindata first
+echo "Generating bindata..."
+make bindata
+
+# Build the extension binary
+echo "Building extension binary..."
+make build
+
+if [ $? -eq 0 ]; then
+    echo "✅ Extension binary built successfully!"
+
+    # Run a quick test to ensure the binary works
+    echo "Testing binary execution..."
+    ./<extension-name> --help > /dev/null 2>&1
+
+    if [ $? -eq 0 ]; then
+        echo "✅ Binary executes correctly!"
+    else
+        echo "⚠️  Binary built but --help failed"
+    fi
+
+    echo ""
+    echo "========================================="
+    echo "Ready for Step 4: Commit go.mod and go.sum"
+    echo "========================================="
+    echo "Files to commit:"
+    echo "  - go.mod"
+    echo "  - go.sum"
+    echo "  - cmd/main.go"
+    echo "  - test/testdata/fixtures.go"
+    echo "  - Makefile"
+    echo "  - bindata.mk"
+else
+    echo "❌ Build failed - manual intervention required"
+    echo "Common issues:"
+    echo "  - Check import paths in test files"
+    echo "  - Verify all test dependencies are available"
+    echo "  - Run 'go mod tidy' again"
+    echo "  - Check for invalid replace directives in go.mod"
+    exit 1
+fi
+```
+
+**Note:** This verification step completes the 4-step Go module workflow:
+1. ✅ go mod init (completed in Phase 5)
+2. ✅ go get dependencies (completed in Phase 5)
+3. ✅ go mod tidy (completed in Phase 5 and Step 1 above)
+4. ✅ go build/test to verify (this step)
+
+After successful verification, you're ready to commit both go.mod and go.sum files.
+
+### Phase 8: Documentation (1 step)
 
 #### Generate Migration Summary
 
-Provide a comprehensive summary:
+Provide a comprehensive summary based on the strategy used:
+
+**For Multi-Module Strategy:**
 
 ```markdown
 # OTE Migration Complete! 🎉
 
 ## Summary
 
-Successfully migrated **<extension-name>** to OpenShift Tests Extension (OTE) framework.
+Successfully migrated **<extension-name>** to OpenShift Tests Extension (OTE) framework using **multi-module strategy**.
 
 ## Created Structure
 
 ```
-tests-extension/
+<working-dir>/                        # Target repository root
 ├── cmd/
-│   └── <extension-name>/
-│       └── main.go                   # OTE entry point
-├── <dest-test-path>/                 # Test files (custom path)
-│   └── *_test.go
-├── <dest-testdata-path>/             # Testdata files (custom path)
-│   ├── bindata.go                    # Generated (run 'make bindata')
-│   └── fixtures.go                   # Wrapper functions
-├── repos/                            # Cloned repositories (if not using local)
-│   ├── openshift-tests-private/      # Source repo
-│   └── target/                       # Target repo
-├── go.mod
-├── Makefile                          # Build targets
-└── bindata.mk                        # Bindata generation rules
+│   └── extension/
+│       └── main.go                   # OTE extension binary
+├── test/
+│   ├── e2e/                          # Test files
+│   │   ├── go.mod                    # Test module (separate from root)
+│   │   └── *_test.go
+│   ├── testdata/                     # Testdata files
+│   │   ├── bindata.go                # Generated
+│   │   └── fixtures.go               # Wrapper functions
+│   ├── Makefile                      # Test build targets
+│   └── bindata.mk                    # Bindata generation
+├── go.mod                            # Root module (updated with OTE + replace directive)
+├── Makefile                          # Root Makefile (extension target added)
+└── repos/                            # Cloned repositories (if not using local)
+    └── openshift-tests-private/      # Source repo
 ```
 
 ## Configuration
 
 **Extension:** <extension-name>
+**Strategy:** Multi-module (integrated into existing repo)
+**Working Directory:** <working-dir>
+
+**Source Repository:** git@github.com:openshift/openshift-tests-private.git
+  - Local Path: <local-source-path> (or "Cloned to repos/openshift-tests-private")
+  - Test Subfolder: test/extended/<test-subfolder>/
+  - Testdata Subfolder: test/extended/testdata/<testdata-subfolder>/
+
+**Module Configuration:**
+  - Root Module: $MODULE_NAME
+  - Test Module: $MODULE_NAME/test/e2e
+  - Replace Directive: Added to root go.mod replace section
+
+## Files Created/Modified
+
+### Generated Code
+- ✅ `cmd/extension/main.go` - OTE entry point with filters and hooks
+- ✅ `test/testdata/fixtures.go` - Testdata wrapper functions
+- ✅ `test/e2e/go.mod` - Test module with OTE dependencies
+- ✅ `test/Makefile` - Test build targets
+- ✅ `test/bindata.mk` - Bindata generation rules
+- ✅ `go.mod` (updated) - Added OTE dependency and replace directive in replace section
+- ✅ `Makefile` (updated) - Added extension build target
+
+### Test Files
+- ✅ Copied **X** test files to `test/e2e/`
+- ✅ Copied **Y** testdata files to `test/testdata/`
+- ✅ Updated imports to use `$MODULE_NAME/test/testdata`
+- ✅ Replaced old `compat_otp.FixturePath()` calls
+
+## Statistics
+
+- **Test files:** X files
+- **Testdata files:** Y files (or "none" if not applicable)
+- **Platform filters:** Detected from labels and test names
+- **Test suites:** 1 main suite (`<org>/<extension-name>/tests`)
+
+## Next Steps (Multi-Module)
+
+### 1. Generate Bindata
+
+```bash
+cd <working-dir>/test
+make bindata
+```
+
+This creates `testdata/bindata.go` with embedded test data.
+
+### 2. Build Extension
+
+```bash
+cd <working-dir>
+make extension
+```
+
+### 3. Validate Tests
+
+```bash
+# List all discovered tests
+make list-tests
+
+# Run tests in dry-run mode
+./extension run --dry-run
+
+# Test platform filtering
+./extension run --platform=aws --dry-run
+```
+
+### 4. Run Tests
+
+```bash
+# Run all tests
+./extension run
+
+# Run specific test
+./extension run "test name pattern"
+```
+
+**For Single-Module Strategy:**
+
+```markdown
+# OTE Migration Complete! 🎉
+
+## Summary
+
+Successfully migrated **<extension-name>** to OpenShift Tests Extension (OTE) framework using **single-module strategy**.
+
+## Created Structure
+
+```
+<working-dir>/
+└── tests-extension/                   # Isolated test extension directory
+    ├── cmd/
+    │   └── main.go                   # OTE entry point
+    ├── test/
+    │   ├── e2e/                      # Test files
+    │   │   └── *_test.go
+    │   └── testdata/                 # Testdata files
+    │       ├── bindata.go            # Generated
+    │       └── fixtures.go           # Wrapper functions
+    ├── vendor/                       # Vendored dependencies
+    ├── go.mod                        # Single module
+    ├── go.sum
+    ├── Makefile                      # Build targets
+    └── bindata.mk                    # Bindata generation
+```
+
+## Configuration
+
+**Extension:** <extension-name>
+**Strategy:** Single-module (isolated directory)
 **Working Directory:** <working-dir>
 
 **Source Repository:** git@github.com:openshift/openshift-tests-private.git
@@ -853,23 +1754,21 @@ tests-extension/
 **Target Repository:** <target-repo-url>
   - Local Path: <local-target-path> (or "Cloned to repos/target")
 
-**Destination Paths:** (⭐ Customized)
-  - Test Files: <dest-test-path>
-  - Testdata: <dest-testdata-path>
-
 ## Files Created/Modified
 
 ### Generated Code
-- ✅ `cmd/<extension-name>/main.go` - OTE entry point with filters and hooks
-- ✅ `<dest-testdata-path>/fixtures.go` - Testdata wrapper functions
+- ✅ `cmd/main.go` - OTE entry point with filters and hooks
+- ✅ `test/testdata/fixtures.go` - Testdata wrapper functions
 - ✅ `go.mod` - Go module with OTE dependencies
-- ✅ `Makefile` - Build targets (custom testdata path: <dest-testdata-path>)
-- ✅ `bindata.mk` - Bindata generation rules (auto-installs go-bindata)
+- ✅ `go.sum` - Dependency checksums
+- ✅ `Makefile` - Build targets
+- ✅ `bindata.mk` - Bindata generation rules
 
 ### Test Files
-- ✅ Copied **X** test files to `<dest-test-path>/`
-- ✅ Copied **Y** testdata files to `<dest-testdata-path>/`
-- ✅ Updated imports to use `testdata.FixturePath()`
+- ✅ Copied **X** test files to `test/e2e/`
+- ✅ Copied **Y** testdata files to `test/testdata/`
+- ✅ Vendored dependencies to `vendor/`
+- ✅ Updated imports to use `github.com/<org>/<extension-name>-tests-extension/test/testdata`
 - ✅ Replaced old `compat_otp.FixturePath()` calls
 
 ## Statistics
@@ -879,7 +1778,7 @@ tests-extension/
 - **Platform filters:** Detected from labels and test names
 - **Test suites:** 1 main suite (`<org>/<extension-name>/tests`)
 
-## Next Steps
+## Next Steps (Single-Module)
 
 ### 1. Generate Bindata
 
@@ -888,8 +1787,7 @@ cd <working-dir>/tests-extension
 make bindata
 ```
 
-This creates `<dest-testdata-path>/bindata.go` with embedded test data.
-**Note:** The Makefile will automatically install go-bindata if not present!
+This creates `test/testdata/bindata.go` with embedded test data.
 
 ### 2. Update Dependencies
 
@@ -902,8 +1800,6 @@ go mod tidy
 
 ```bash
 make build
-# Or manually:
-# go build -o <extension-name> ./cmd/<extension-name>
 ```
 
 ### 4. Validate Tests
@@ -911,7 +1807,6 @@ make build
 ```bash
 # List all discovered tests
 make list
-# Or: ./<extension-name> list
 
 # Run tests in dry-run mode
 ./<extension-name> run --dry-run
@@ -933,11 +1828,78 @@ make list
 ./<extension-name> run --platform=aws
 ```
 
+### 6. Integrate into Component Dockerfile
+
+To include the OTE extension binary in your component's Docker image, add build steps to your Dockerfile.
+
+**Example multi-stage Dockerfile (following machine-api-operator and machine-config-operator patterns):**
+
+```dockerfile
+# Stage 1: Build the extension binary
+FROM registry.ci.openshift.org/ocp/builder:rhel-9-golang-1.21-openshift-4.17 AS builder
+WORKDIR /go/src/github.com/<org>/<component-name>
+
+# Copy source code
+COPY . .
+
+# Generate testdata bindata
+RUN cd test && make bindata
+
+# Build the extension binary
+RUN GO111MODULE=on go build -mod=vendor -o /go/bin/extension ./cmd/extension
+
+# Stage 2: Final image with extension binary
+FROM registry.ci.openshift.org/ocp/4.17:base-rhel9
+COPY --from=builder /go/bin/extension /usr/bin/extension
+
+# ... rest of your Dockerfile
+```
+
+**For repos using `make` targets:**
+
+```dockerfile
+# Build stage
+FROM registry.ci.openshift.org/ocp/builder:rhel-9-golang-1.21-openshift-4.17 AS builder
+WORKDIR /go/src/github.com/<org>/<component-name>
+
+COPY . .
+
+# Build using make target (includes bindata generation)
+RUN make extension
+
+# Final stage
+FROM registry.ci.openshift.org/ocp/4.17:base-rhel9
+COPY --from=builder /go/src/github.com/<org>/<component-name>/extension /usr/bin/extension
+
+# ... rest of your Dockerfile
+```
+
+**Key points:**
+- Build happens in the builder stage with Go toolchain
+- `test/bindata.go` is generated before building the binary
+- Final binary is copied to `/usr/bin/extension` in the runtime image
+- Use vendored dependencies with `-mod=vendor` flag
+- The extension binary can be run in the container for test discovery and execution
+
+**Updating your Makefile for Docker builds:**
+
+Add a docker-build target to your root Makefile:
+
+```makefile
+.PHONY: docker-build
+docker-build:
+	docker build -t <component-name>:latest .
+
+.PHONY: docker-extension
+docker-extension: docker-build
+	docker run --rm <component-name>:latest /usr/bin/extension list
+```
+
 ## Customization Options
 
 ### Add More Environment Filters
 
-Edit `cmd/<extension-name>/main.go` and add filters:
+Edit `cmd/main.go` and add filters:
 
 ```go
 // Network filter
@@ -995,7 +1957,7 @@ specs.AddAfterEach(func(res *et.ExtensionTestResult) {
 ## Important Notes
 
 - **Always run `make bindata` before building** to regenerate embedded testdata
-- **`<dest-testdata-path>/bindata.go` is generated** - not committed to git
+- **`test/testdata/bindata.go` is generated** - not committed to git
 - **go-bindata is auto-installed** - Makefile uses `go install` if not present
 - **Use `testdata.FixturePath()`** in tests to replace `compat_otp.FixturePath()`
 - **Cleanup is automatic** - `CleanupFixtures()` hook is already added
@@ -1003,13 +1965,14 @@ specs.AddAfterEach(func(res *et.ExtensionTestResult) {
 ## Troubleshooting
 
 ### Tests not discovered
-- Check that test files are in `<dest-test-path>/`
-- Verify imports in `cmd/<extension-name>/main.go`
-- Ensure test packages are not vendored
+- Check that test files are in `test/e2e/`
+- Verify imports in `cmd/main.go`
+- Ensure test packages are imported correctly
+- Run `go mod tidy` and `go mod vendor` to refresh dependencies
 
 ### Bindata errors
 - Run `make bindata` before building
-- Check that `<dest-testdata-path>/` exists and contains files
+- Check that `test/testdata/` exists and contains files
 - Ensure go-bindata is installed (Makefile auto-installs it)
 
 ### Platform filters not working
@@ -1062,14 +2025,6 @@ After migration, guide the user through validation:
 
 ## Important Implementation Notes
 
-### Path Normalization
-
-When converting file paths to Go import paths:
-- `test/testdata` → `test/testdata` (no change needed)
-- `pkg/test/data` → `pkg/test/data`
-- Remove leading/trailing slashes
-- Replace any non-Go-identifier characters if present
-
 ### Git Repository Handling
 
 - Always check if `repos/source` and `repos/target` exist before cloning
@@ -1091,14 +2046,9 @@ Replace these placeholders with actual values:
 - `<extension-name>` - Extension name from user input
 - `<org>` - Organization extracted from target repo URL
 - `<working-dir>` - Working directory path
-- `<source-repo-url>` - Source repository URL
 - `<target-repo-url>` - Target repository URL
-- `<source-test-path>` - Source test file path
-- `<source-testdata-path>` - Source testdata path
-- `<dest-test-path>` - Destination test path
-- `<dest-testdata-path>` - Destination testdata path
-- `<dest-testdata-path-normalized>` - Go import path for testdata
-- `<dest-test-path-normalized>` - Go import path for tests
+- `<source-test-path>` - Source test file path (from openshift-tests-private)
+- `<source-testdata-path>` - Source testdata path (from openshift-tests-private)
 
 ## Begin Migration
 
