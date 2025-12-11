@@ -14,7 +14,8 @@ This repository contains a Claude Code slash command that automates the complete
 - 🔄 **Repository management** - Use existing local repos or automatic cloning
 - 🏗️ **Structure creation** - Creates all necessary directories and files
 - 🤖 **Code generation** - Generates OTE integration boilerplate
-- 📦 **Proper Go modules** - Follows the 4-step Go module initialization workflow
+- 📦 **Proper Go modules** - Follows the 5-step Go module initialization workflow with k8s.io pinning
+- 🔧 **Dependency resolution** - Automatically uses correct openshift/origin version and adds k8s.io replace directives
 - ✅ **Build verification** - Automatically verifies the build works before completion
 - 🏷️ **Pattern detection** - Identifies platform filters, labels, and test organization
 - 📊 **Comprehensive reports** - Detailed migration summary with next steps
@@ -136,13 +137,23 @@ The command will collect the following information:
 
 After migration completes, the tool will have already:
 1. ✅ Initialized Go modules (`go mod init`)
-2. ✅ Added dependencies (`go get`)
-3. ✅ Resolved all transitive dependencies (`go mod tidy`)
-4. ✅ Verified the build works (`go build`)
+2. ✅ Added dependencies with correct versions (`go get github.com/openshift/origin@<version-from-openshift-tests-private>`)
+3. ✅ Added k8s.io replace directives to pin module versions (prevents "module found but does not contain package" errors)
+4. ✅ Resolved all transitive dependencies (`go mod tidy`)
+5. ✅ Verified the build works (`go build`)
 
 You should have these files ready to commit:
 - `go.mod` and `go.sum` (both root and test modules for multi-module strategy)
+  - go.mod now includes replace directives for k8s.io/* modules
+  - Uses the same openshift/origin version as openshift-tests-private
 - All generated code files (main.go, fixtures.go, Makefile, etc.)
+
+**Dependency Resolution:**
+The tool automatically:
+- Reads the correct `openshift/origin` version from your local `openshift-tests-private/go.mod`
+- Reads the `k8s.io/*` module versions from `openshift-tests-private/go.mod`
+- Adds replace directives to pin all k8s.io modules to the correct version
+- This ensures compatibility and prevents dependency resolution errors
 
 **Optional: Manual validation:**
 
@@ -447,7 +458,14 @@ Contributions welcome! To improve the migration tool:
 
 ## What's New
 
-### Latest Changes (v2.9)
+### Latest Changes (v2.10)
+
+- ✅ **Fixed `// indirect` dependencies issue** - Added Step 2.5 to run `go mod tidy` AFTER creating main.go
+  - This ensures dependencies are correctly marked as direct (not `// indirect`)
+  - Previously, `go get` ran before main.go existed, causing all deps to be marked as indirect
+  - Now properly updates go.mod after main.go is created with all imports
+
+### Previous Changes (v2.9)
 
 - ✅ **Proper Go module initialization sequence** - Now follows the correct 4-step workflow:
   1. `go mod init` - Creates go.mod with module declaration

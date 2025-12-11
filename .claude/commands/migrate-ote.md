@@ -588,13 +588,57 @@ go mod init $MODULE_NAME/test/e2e
 
 echo "Step 2: Add required dependencies..."
 # Step 2: Add dependencies (go get will update go.mod and create go.sum)
+# Get the correct openshift/origin version from openshift-tests-private
+ORIGIN_VERSION=$(grep "github.com/openshift/origin" "$OTP_PATH/go.mod" | head -1 | awk '{print $2}')
+echo "Using openshift/origin version: $ORIGIN_VERSION (from openshift-tests-private)"
+
 go get github.com/openshift-eng/openshift-tests-extension@latest
-go get github.com/openshift/origin@latest
+go get "github.com/openshift/origin@$ORIGIN_VERSION"
 go get github.com/onsi/ginkgo/v2@latest
 go get github.com/onsi/gomega@latest
 
-echo "Step 3: Resolve all dependencies..."
-# Step 3: go mod tidy - Resolves all transitive dependencies and cleans up
+echo "Step 3: Add k8s.io replace directives..."
+# Add replace directives to pin k8s.io modules to compatible versions
+# This prevents "module found but does not contain package" errors
+K8S_VERSION=$(grep "k8s.io/api " "$OTP_PATH/go.mod" | head -1 | awk '{print $2}')
+echo "Using k8s.io version: $K8S_VERSION (from openshift-tests-private)"
+
+cat >> go.mod <<EOF
+
+replace (
+	k8s.io/api => k8s.io/api $K8S_VERSION
+	k8s.io/apiextensions-apiserver => k8s.io/apiextensions-apiserver $K8S_VERSION
+	k8s.io/apimachinery => k8s.io/apimachinery $K8S_VERSION
+	k8s.io/apiserver => k8s.io/apiserver $K8S_VERSION
+	k8s.io/cli-runtime => k8s.io/cli-runtime $K8S_VERSION
+	k8s.io/client-go => k8s.io/client-go $K8S_VERSION
+	k8s.io/cloud-provider => k8s.io/cloud-provider $K8S_VERSION
+	k8s.io/cluster-bootstrap => k8s.io/cluster-bootstrap $K8S_VERSION
+	k8s.io/code-generator => k8s.io/code-generator $K8S_VERSION
+	k8s.io/component-base => k8s.io/component-base $K8S_VERSION
+	k8s.io/component-helpers => k8s.io/component-helpers $K8S_VERSION
+	k8s.io/controller-manager => k8s.io/controller-manager $K8S_VERSION
+	k8s.io/cri-api => k8s.io/cri-api $K8S_VERSION
+	k8s.io/csi-translation-lib => k8s.io/csi-translation-lib $K8S_VERSION
+	k8s.io/kms => k8s.io/kms $K8S_VERSION
+	k8s.io/kube-aggregator => k8s.io/kube-aggregator $K8S_VERSION
+	k8s.io/kube-controller-manager => k8s.io/kube-controller-manager $K8S_VERSION
+	k8s.io/kube-proxy => k8s.io/kube-proxy $K8S_VERSION
+	k8s.io/kube-scheduler => k8s.io/kube-scheduler $K8S_VERSION
+	k8s.io/kubectl => k8s.io/kubectl $K8S_VERSION
+	k8s.io/kubelet => k8s.io/kubelet $K8S_VERSION
+	k8s.io/legacy-cloud-providers => k8s.io/legacy-cloud-providers $K8S_VERSION
+	k8s.io/metrics => k8s.io/metrics $K8S_VERSION
+	k8s.io/mount-utils => k8s.io/mount-utils $K8S_VERSION
+	k8s.io/pod-security-admission => k8s.io/pod-security-admission $K8S_VERSION
+	k8s.io/sample-apiserver => k8s.io/sample-apiserver $K8S_VERSION
+	k8s.io/sample-cli-plugin => k8s.io/sample-cli-plugin $K8S_VERSION
+	k8s.io/sample-controller => k8s.io/sample-controller $K8S_VERSION
+)
+EOF
+
+echo "Step 4: Resolve all dependencies..."
+# Step 4: go mod tidy - Resolves all transitive dependencies and cleans up
 go mod tidy
 
 # IMPORTANT: Check for and remove any invalid local replace directives
@@ -605,12 +649,13 @@ if grep -q "replace.*github.com/openshift/origin.*=>.*/" go.mod; then
     go mod tidy
 fi
 
-echo "Step 4: Verify go.mod and go.sum are created..."
+echo "Step 5: Verify go.mod and go.sum are created..."
 # Both go.mod and go.sum should now exist with resolved versions
 if [ -f "go.mod" ] && [ -f "go.sum" ]; then
     echo "✅ go.mod and go.sum created successfully"
     echo "Module: $(grep '^module' go.mod)"
     echo "Dependencies: $(grep -c '^require' go.mod) direct dependencies"
+    echo "K8s replace directives: $(grep -c 'k8s.io' go.mod || echo 0)"
 else
     echo "❌ Error: go.mod or go.sum not created properly"
     exit 1
@@ -631,13 +676,57 @@ go mod init github.com/<org>/<extension-name>-tests-extension
 
 echo "Step 2: Add required dependencies..."
 # Step 2: Add dependencies (go get will update go.mod and create go.sum)
+# Get the correct openshift/origin version from openshift-tests-private
+ORIGIN_VERSION=$(grep "github.com/openshift/origin" "$OTP_PATH/go.mod" | head -1 | awk '{print $2}')
+echo "Using openshift/origin version: $ORIGIN_VERSION (from openshift-tests-private)"
+
 go get github.com/openshift-eng/openshift-tests-extension@latest
-go get github.com/openshift/origin@latest
+go get "github.com/openshift/origin@$ORIGIN_VERSION"
 go get github.com/onsi/ginkgo/v2@latest
 go get github.com/onsi/gomega@latest
 
-echo "Step 3: Resolve all dependencies..."
-# Step 3: go mod tidy - Resolves all transitive dependencies and cleans up
+echo "Step 3: Add k8s.io replace directives..."
+# Add replace directives to pin k8s.io modules to compatible versions
+# This prevents "module found but does not contain package" errors
+K8S_VERSION=$(grep "k8s.io/api " "$OTP_PATH/go.mod" | head -1 | awk '{print $2}')
+echo "Using k8s.io version: $K8S_VERSION (from openshift-tests-private)"
+
+cat >> go.mod <<EOF
+
+replace (
+	k8s.io/api => k8s.io/api $K8S_VERSION
+	k8s.io/apiextensions-apiserver => k8s.io/apiextensions-apiserver $K8S_VERSION
+	k8s.io/apimachinery => k8s.io/apimachinery $K8S_VERSION
+	k8s.io/apiserver => k8s.io/apiserver $K8S_VERSION
+	k8s.io/cli-runtime => k8s.io/cli-runtime $K8S_VERSION
+	k8s.io/client-go => k8s.io/client-go $K8S_VERSION
+	k8s.io/cloud-provider => k8s.io/cloud-provider $K8S_VERSION
+	k8s.io/cluster-bootstrap => k8s.io/cluster-bootstrap $K8S_VERSION
+	k8s.io/code-generator => k8s.io/code-generator $K8S_VERSION
+	k8s.io/component-base => k8s.io/component-base $K8S_VERSION
+	k8s.io/component-helpers => k8s.io/component-helpers $K8S_VERSION
+	k8s.io/controller-manager => k8s.io/controller-manager $K8S_VERSION
+	k8s.io/cri-api => k8s.io/cri-api $K8S_VERSION
+	k8s.io/csi-translation-lib => k8s.io/csi-translation-lib $K8S_VERSION
+	k8s.io/kms => k8s.io/kms $K8S_VERSION
+	k8s.io/kube-aggregator => k8s.io/kube-aggregator $K8S_VERSION
+	k8s.io/kube-controller-manager => k8s.io/kube-controller-manager $K8S_VERSION
+	k8s.io/kube-proxy => k8s.io/kube-proxy $K8S_VERSION
+	k8s.io/kube-scheduler => k8s.io/kube-scheduler $K8S_VERSION
+	k8s.io/kubectl => k8s.io/kubectl $K8S_VERSION
+	k8s.io/kubelet => k8s.io/kubelet $K8S_VERSION
+	k8s.io/legacy-cloud-providers => k8s.io/legacy-cloud-providers $K8S_VERSION
+	k8s.io/metrics => k8s.io/metrics $K8S_VERSION
+	k8s.io/mount-utils => k8s.io/mount-utils $K8S_VERSION
+	k8s.io/pod-security-admission => k8s.io/pod-security-admission $K8S_VERSION
+	k8s.io/sample-apiserver => k8s.io/sample-apiserver $K8S_VERSION
+	k8s.io/sample-cli-plugin => k8s.io/sample-cli-plugin $K8S_VERSION
+	k8s.io/sample-controller => k8s.io/sample-controller $K8S_VERSION
+)
+EOF
+
+echo "Step 4: Resolve all dependencies..."
+# Step 4: go mod tidy - Resolves all transitive dependencies and cleans up
 go mod tidy
 
 # IMPORTANT: Check for and remove any invalid local replace directives
@@ -648,12 +737,13 @@ if grep -q "replace.*github.com/openshift/origin.*=>.*/" go.mod; then
     go mod tidy
 fi
 
-echo "Step 4: Verify go.mod and go.sum are created..."
+echo "Step 5: Verify go.mod and go.sum are created..."
 # Both go.mod and go.sum should now exist with resolved versions
 if [ -f "go.mod" ] && [ -f "go.sum" ]; then
     echo "✅ go.mod and go.sum created successfully"
     echo "Module: $(grep '^module' go.mod)"
     echo "Dependencies: $(grep -c '^require' go.mod) direct dependencies"
+    echo "K8s replace directives: $(grep -c 'k8s.io' go.mod || echo 0)"
 else
     echo "❌ Error: go.mod or go.sum not created properly"
     exit 1
@@ -862,6 +952,57 @@ func main() {
 		os.Exit(1)
 	}
 }
+```
+
+#### Step 2.5: Update go.mod to Mark Dependencies as Direct
+
+**IMPORTANT:** Now that cmd/main.go exists with all the imports, we need to run `go mod tidy` again
+to update the dependency declarations from `// indirect` to direct dependencies.
+
+**For Multi-Module Strategy:**
+
+```bash
+cd <working-dir>/test/e2e
+
+echo "Updating go.mod after creating main.go..."
+echo "This will change dependencies from '// indirect' to direct dependencies"
+
+# Run go mod tidy to update dependency declarations
+go mod tidy
+
+# Verify dependencies are now marked as direct (no // indirect)
+if grep -q "github.com/openshift-eng/openshift-tests-extension.*// indirect" go.mod || \
+   grep -q "github.com/openshift/origin.*// indirect" go.mod; then
+    echo "⚠️  WARNING: Some dependencies still marked as indirect"
+    echo "This may indicate import issues in cmd/extension/main.go"
+else
+    echo "✅ All OTE dependencies correctly marked as direct"
+fi
+
+cd ../..
+```
+
+**For Single-Module Strategy:**
+
+```bash
+cd <working-dir>/tests-extension
+
+echo "Updating go.mod after creating main.go..."
+echo "This will change dependencies from '// indirect' to direct dependencies"
+
+# Run go mod tidy to update dependency declarations
+go mod tidy
+
+# Verify dependencies are now marked as direct (no // indirect)
+if grep -q "github.com/openshift-eng/openshift-tests-extension.*// indirect" go.mod || \
+   grep -q "github.com/openshift/origin.*// indirect" go.mod; then
+    echo "⚠️  WARNING: Some dependencies still marked as indirect"
+    echo "This may indicate import issues in cmd/main.go"
+else
+    echo "✅ All OTE dependencies correctly marked as direct"
+fi
+
+cd ..
 ```
 
 #### Step 3: Create bindata.mk
