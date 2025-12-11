@@ -15,7 +15,8 @@ This repository contains a Claude Code slash command that automates the complete
 - 🏗️ **Structure creation** - Creates all necessary directories and files
 - 🤖 **Code generation** - Generates OTE integration boilerplate
 - 📦 **Proper Go modules** - Follows the 5-step Go module initialization workflow with k8s.io pinning
-- 🔧 **Dependency resolution** - Automatically uses correct openshift/origin version and adds k8s.io replace directives
+- 🔧 **Robust dependency resolution** - Retry logic, explicit downloads, and fallback instructions for network issues
+- ✨ **Auto-migration** - Automatically replaces `compat_otp.FixturePath()` and updates imports
 - ✅ **Build verification** - Automatically verifies the build works before completion
 - 🏷️ **Pattern detection** - Identifies platform filters, labels, and test organization
 - 📊 **Comprehensive reports** - Detailed migration summary with next steps
@@ -33,7 +34,7 @@ Performs the complete OTE migration in one workflow:
 4. **Copies files** - Moves test files to test/e2e/ and testdata to test/testdata/
 5. **Vendors dependencies** - Automatically vendors Go dependencies (compat_otp, exutil, etc.)
 6. **Generates code** - Creates go.mod, cmd/main.go, Makefile, fixtures.go
-7. **Migrates tests** - Updates imports and FixturePath calls
+7. **Migrates tests** - Automatically replaces `compat_otp.FixturePath()` and `exutil.FixturePath()` with `testdata.FixturePath()`, updates imports, and cleans up old imports
 8. **Provides validation** - Gives comprehensive next steps and validation guide
 
 **Key Features:**
@@ -141,6 +142,8 @@ After migration completes, the tool will have already:
 3. ✅ Added k8s.io replace directives to pin module versions (prevents "module found but does not contain package" errors)
 4. ✅ Resolved all transitive dependencies (`go mod tidy`)
 5. ✅ Verified the build works (`go build`)
+6. ✅ Replaced `compat_otp.FixturePath()` with `testdata.FixturePath()`
+7. ✅ Updated imports to use new testdata package
 
 You should have these files ready to commit:
 - `go.mod` and `go.sum` (both root and test modules for multi-module strategy)
@@ -458,7 +461,32 @@ Contributions welcome! To improve the migration tool:
 
 ## What's New
 
-### Latest Changes (v2.10)
+### Latest Changes (v2.12)
+
+- ✅ **Complete k8s.io module pinning** - Matches working router tests-extension configuration
+  - Added missing `k8s.io/cri-client` replace directive
+  - Added missing `k8s.io/dynamic-resource-allocation` replace directive
+  - **CRITICAL:** Added `k8s.io/kubernetes => github.com/openshift/kubernetes` fork replace
+  - Total of 31 k8s.io replace directives (same as successful migrations)
+  - Automatically extracts OpenShift Kubernetes fork version from openshift-tests-private
+  - Enhanced verification to check for all critical replace directives
+
+### Previous Changes (v2.11)
+
+- ✅ **Fully automated test migration** - No more manual TODOs!
+  - Automatically replaces `compat_otp.FixturePath()` with `testdata.FixturePath()`
+  - Automatically replaces `exutil.FixturePath()` with `testdata.FixturePath()`
+  - Automatically adds testdata package imports to test files
+  - Automatically cleans up old compat_otp/exutil imports
+  - Zero manual edits required after migration completes
+- ✅ **Robust dependency resolution** - Network interruption handling
+  - Automatic retry logic for `go get` operations
+  - Explicit `go mod download` step to verify all dependencies
+  - Clear error messages and recovery instructions if downloads fail
+  - Retry mechanism for `go mod tidy` operations
+  - Complete troubleshooting guide in migration summary
+
+### Previous Changes (v2.10)
 
 - ✅ **Fixed `// indirect` dependencies issue** - Added Step 2.5 to run `go mod tidy` AFTER creating main.go
   - This ensures dependencies are correctly marked as direct (not `// indirect`)

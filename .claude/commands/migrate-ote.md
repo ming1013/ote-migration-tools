@@ -592,16 +592,43 @@ echo "Step 2: Add required dependencies..."
 ORIGIN_VERSION=$(grep "github.com/openshift/origin" "$OTP_PATH/go.mod" | head -1 | awk '{print $2}')
 echo "Using openshift/origin version: $ORIGIN_VERSION (from openshift-tests-private)"
 
-go get github.com/openshift-eng/openshift-tests-extension@latest
-go get "github.com/openshift/origin@$ORIGIN_VERSION"
-go get github.com/onsi/ginkgo/v2@latest
-go get github.com/onsi/gomega@latest
+# Add dependencies with retry logic for network issues
+echo "Adding openshift-tests-extension dependency..."
+if ! go get github.com/openshift-eng/openshift-tests-extension@latest; then
+    echo "⚠️  Warning: Failed to download openshift-tests-extension, retrying..."
+    sleep 2
+    go get github.com/openshift-eng/openshift-tests-extension@latest || echo "❌ Failed after retry"
+fi
+
+echo "Adding openshift/origin dependency..."
+if ! go get "github.com/openshift/origin@$ORIGIN_VERSION"; then
+    echo "⚠️  Warning: Failed to download openshift/origin, retrying..."
+    sleep 2
+    go get "github.com/openshift/origin@$ORIGIN_VERSION" || echo "❌ Failed after retry"
+fi
+
+echo "Adding Ginkgo and Gomega dependencies..."
+if ! go get github.com/onsi/ginkgo/v2@latest; then
+    echo "⚠️  Warning: Failed to download ginkgo, retrying..."
+    sleep 2
+    go get github.com/onsi/ginkgo/v2@latest || echo "❌ Failed after retry"
+fi
+
+if ! go get github.com/onsi/gomega@latest; then
+    echo "⚠️  Warning: Failed to download gomega, retrying..."
+    sleep 2
+    go get github.com/onsi/gomega@latest || echo "❌ Failed after retry"
+fi
 
 echo "Step 3: Add k8s.io replace directives..."
 # Add replace directives to pin k8s.io modules to compatible versions
 # This prevents "module found but does not contain package" errors
 K8S_VERSION=$(grep "k8s.io/api " "$OTP_PATH/go.mod" | head -1 | awk '{print $2}')
 echo "Using k8s.io version: $K8S_VERSION (from openshift-tests-private)"
+
+# Extract OpenShift Kubernetes fork version from openshift-tests-private
+K8S_FORK=$(grep "k8s.io/kubernetes =>" "$OTP_PATH/go.mod" | awk '{print $4, $5}')
+echo "Using OpenShift Kubernetes fork: $K8S_FORK"
 
 cat >> go.mod <<EOF
 
@@ -619,7 +646,9 @@ replace (
 	k8s.io/component-helpers => k8s.io/component-helpers $K8S_VERSION
 	k8s.io/controller-manager => k8s.io/controller-manager $K8S_VERSION
 	k8s.io/cri-api => k8s.io/cri-api $K8S_VERSION
+	k8s.io/cri-client => k8s.io/cri-client $K8S_VERSION
 	k8s.io/csi-translation-lib => k8s.io/csi-translation-lib $K8S_VERSION
+	k8s.io/dynamic-resource-allocation => k8s.io/dynamic-resource-allocation $K8S_VERSION
 	k8s.io/kms => k8s.io/kms $K8S_VERSION
 	k8s.io/kube-aggregator => k8s.io/kube-aggregator $K8S_VERSION
 	k8s.io/kube-controller-manager => k8s.io/kube-controller-manager $K8S_VERSION
@@ -627,6 +656,7 @@ replace (
 	k8s.io/kube-scheduler => k8s.io/kube-scheduler $K8S_VERSION
 	k8s.io/kubectl => k8s.io/kubectl $K8S_VERSION
 	k8s.io/kubelet => k8s.io/kubelet $K8S_VERSION
+	k8s.io/kubernetes => $K8S_FORK
 	k8s.io/legacy-cloud-providers => k8s.io/legacy-cloud-providers $K8S_VERSION
 	k8s.io/metrics => k8s.io/metrics $K8S_VERSION
 	k8s.io/mount-utils => k8s.io/mount-utils $K8S_VERSION
@@ -639,7 +669,14 @@ EOF
 
 echo "Step 4: Resolve all dependencies..."
 # Step 4: go mod tidy - Resolves all transitive dependencies and cleans up
-go mod tidy
+if ! go mod tidy; then
+    echo "⚠️  Warning: go mod tidy failed, retrying..."
+    sleep 2
+    go mod tidy || {
+        echo "❌ go mod tidy failed after retry"
+        echo "You may need to run it manually later"
+    }
+fi
 
 # IMPORTANT: Check for and remove any invalid local replace directives
 # that might have been added by go mod tidy
@@ -649,13 +686,34 @@ if grep -q "replace.*github.com/openshift/origin.*=>.*/" go.mod; then
     go mod tidy
 fi
 
+echo "Step 4.5: Download all dependencies..."
+# Explicitly download all dependencies to catch any network issues early
+if ! go mod download; then
+    echo "⚠️  Warning: go mod download failed, retrying..."
+    sleep 2
+    if ! go mod download; then
+        echo "❌ Dependency download failed after retry"
+        echo "Network interruption detected - you may need to complete manually"
+    fi
+fi
+
 echo "Step 5: Verify go.mod and go.sum are created..."
 # Both go.mod and go.sum should now exist with resolved versions
 if [ -f "go.mod" ] && [ -f "go.sum" ]; then
     echo "✅ go.mod and go.sum created successfully"
     echo "Module: $(grep '^module' go.mod)"
     echo "Dependencies: $(grep -c '^require' go.mod) direct dependencies"
-    echo "K8s replace directives: $(grep -c 'k8s.io' go.mod || echo 0)"
+
+    # Count k8s.io replace directives (should be 31 total)
+    K8S_REPLACES=$(grep -c '^\sk8s.io.*=>' go.mod || echo 0)
+    echo "K8s replace directives: $K8S_REPLACES"
+
+    # Verify critical replace directive exists
+    if grep -q "k8s.io/kubernetes =>" go.mod; then
+        echo "✅ OpenShift Kubernetes fork replace directive added"
+    else
+        echo "⚠️  Warning: k8s.io/kubernetes replace directive not found"
+    fi
 else
     echo "❌ Error: go.mod or go.sum not created properly"
     exit 1
@@ -680,16 +738,43 @@ echo "Step 2: Add required dependencies..."
 ORIGIN_VERSION=$(grep "github.com/openshift/origin" "$OTP_PATH/go.mod" | head -1 | awk '{print $2}')
 echo "Using openshift/origin version: $ORIGIN_VERSION (from openshift-tests-private)"
 
-go get github.com/openshift-eng/openshift-tests-extension@latest
-go get "github.com/openshift/origin@$ORIGIN_VERSION"
-go get github.com/onsi/ginkgo/v2@latest
-go get github.com/onsi/gomega@latest
+# Add dependencies with retry logic for network issues
+echo "Adding openshift-tests-extension dependency..."
+if ! go get github.com/openshift-eng/openshift-tests-extension@latest; then
+    echo "⚠️  Warning: Failed to download openshift-tests-extension, retrying..."
+    sleep 2
+    go get github.com/openshift-eng/openshift-tests-extension@latest || echo "❌ Failed after retry"
+fi
+
+echo "Adding openshift/origin dependency..."
+if ! go get "github.com/openshift/origin@$ORIGIN_VERSION"; then
+    echo "⚠️  Warning: Failed to download openshift/origin, retrying..."
+    sleep 2
+    go get "github.com/openshift/origin@$ORIGIN_VERSION" || echo "❌ Failed after retry"
+fi
+
+echo "Adding Ginkgo and Gomega dependencies..."
+if ! go get github.com/onsi/ginkgo/v2@latest; then
+    echo "⚠️  Warning: Failed to download ginkgo, retrying..."
+    sleep 2
+    go get github.com/onsi/ginkgo/v2@latest || echo "❌ Failed after retry"
+fi
+
+if ! go get github.com/onsi/gomega@latest; then
+    echo "⚠️  Warning: Failed to download gomega, retrying..."
+    sleep 2
+    go get github.com/onsi/gomega@latest || echo "❌ Failed after retry"
+fi
 
 echo "Step 3: Add k8s.io replace directives..."
 # Add replace directives to pin k8s.io modules to compatible versions
 # This prevents "module found but does not contain package" errors
 K8S_VERSION=$(grep "k8s.io/api " "$OTP_PATH/go.mod" | head -1 | awk '{print $2}')
 echo "Using k8s.io version: $K8S_VERSION (from openshift-tests-private)"
+
+# Extract OpenShift Kubernetes fork version from openshift-tests-private
+K8S_FORK=$(grep "k8s.io/kubernetes =>" "$OTP_PATH/go.mod" | awk '{print $4, $5}')
+echo "Using OpenShift Kubernetes fork: $K8S_FORK"
 
 cat >> go.mod <<EOF
 
@@ -707,7 +792,9 @@ replace (
 	k8s.io/component-helpers => k8s.io/component-helpers $K8S_VERSION
 	k8s.io/controller-manager => k8s.io/controller-manager $K8S_VERSION
 	k8s.io/cri-api => k8s.io/cri-api $K8S_VERSION
+	k8s.io/cri-client => k8s.io/cri-client $K8S_VERSION
 	k8s.io/csi-translation-lib => k8s.io/csi-translation-lib $K8S_VERSION
+	k8s.io/dynamic-resource-allocation => k8s.io/dynamic-resource-allocation $K8S_VERSION
 	k8s.io/kms => k8s.io/kms $K8S_VERSION
 	k8s.io/kube-aggregator => k8s.io/kube-aggregator $K8S_VERSION
 	k8s.io/kube-controller-manager => k8s.io/kube-controller-manager $K8S_VERSION
@@ -715,6 +802,7 @@ replace (
 	k8s.io/kube-scheduler => k8s.io/kube-scheduler $K8S_VERSION
 	k8s.io/kubectl => k8s.io/kubectl $K8S_VERSION
 	k8s.io/kubelet => k8s.io/kubelet $K8S_VERSION
+	k8s.io/kubernetes => $K8S_FORK
 	k8s.io/legacy-cloud-providers => k8s.io/legacy-cloud-providers $K8S_VERSION
 	k8s.io/metrics => k8s.io/metrics $K8S_VERSION
 	k8s.io/mount-utils => k8s.io/mount-utils $K8S_VERSION
@@ -727,7 +815,14 @@ EOF
 
 echo "Step 4: Resolve all dependencies..."
 # Step 4: go mod tidy - Resolves all transitive dependencies and cleans up
-go mod tidy
+if ! go mod tidy; then
+    echo "⚠️  Warning: go mod tidy failed, retrying..."
+    sleep 2
+    go mod tidy || {
+        echo "❌ go mod tidy failed after retry"
+        echo "You may need to run it manually later"
+    }
+fi
 
 # IMPORTANT: Check for and remove any invalid local replace directives
 # that might have been added by go mod tidy
@@ -737,13 +832,34 @@ if grep -q "replace.*github.com/openshift/origin.*=>.*/" go.mod; then
     go mod tidy
 fi
 
+echo "Step 4.5: Download all dependencies..."
+# Explicitly download all dependencies to catch any network issues early
+if ! go mod download; then
+    echo "⚠️  Warning: go mod download failed, retrying..."
+    sleep 2
+    if ! go mod download; then
+        echo "❌ Dependency download failed after retry"
+        echo "Network interruption detected - you may need to complete manually"
+    fi
+fi
+
 echo "Step 5: Verify go.mod and go.sum are created..."
 # Both go.mod and go.sum should now exist with resolved versions
 if [ -f "go.mod" ] && [ -f "go.sum" ]; then
     echo "✅ go.mod and go.sum created successfully"
     echo "Module: $(grep '^module' go.mod)"
     echo "Dependencies: $(grep -c '^require' go.mod) direct dependencies"
-    echo "K8s replace directives: $(grep -c 'k8s.io' go.mod || echo 0)"
+
+    # Count k8s.io replace directives (should be 31 total)
+    K8S_REPLACES=$(grep -c '^\sk8s.io.*=>' go.mod || echo 0)
+    echo "K8s replace directives: $K8S_REPLACES"
+
+    # Verify critical replace directive exists
+    if grep -q "k8s.io/kubernetes =>" go.mod; then
+        echo "✅ OpenShift Kubernetes fork replace directive added"
+    else
+        echo "⚠️  Warning: k8s.io/kubernetes replace directive not found"
+    fi
 else
     echo "❌ Error: go.mod or go.sum not created properly"
     exit 1
@@ -1461,92 +1577,246 @@ COPY --from=builder /go/src/github.com/<org>/<component-name>/cmd/extension/<ext
 
 For single-module strategy, refer to the Dockerfile integration section in the migration summary (Phase 8).
 
-### Phase 6: Test Migration (2 steps)
+### Phase 6: Test Migration (3 steps - AUTOMATED)
 
-#### Step 1: Add Testdata Import
+#### Step 1: Replace FixturePath Calls
 
 **For Multi-Module Strategy:**
-
-Search all test files in `test/e2e` and add the testdata import:
 
 ```bash
 cd <working-dir>
 
-# Find all test files
-find test/e2e -name '*_test.go' -type f
+echo "========================================="
+echo "Automating test file migration..."
+echo "========================================="
 
-# For each file, check if it uses FixturePath and add import if needed
-```
+# Find all test files that use FixturePath
+TEST_FILES=$(grep -rl "FixturePath" test/e2e/ --include="*_test.go" 2>/dev/null || true)
 
-Add to test files:
-```go
-import (
-    "$MODULE_NAME/test/testdata"
-)
+if [ -z "$TEST_FILES" ]; then
+    echo "No test files using FixturePath found - skipping migration"
+else
+    echo "Found $(echo "$TEST_FILES" | wc -l) test files using FixturePath"
+
+    # Replace compat_otp.FixturePath with testdata.FixturePath
+    echo "Replacing compat_otp.FixturePath() calls..."
+    for file in $TEST_FILES; do
+        if grep -q "compat_otp\.FixturePath" "$file"; then
+            sed -i 's/compat_otp\.FixturePath/testdata.FixturePath/g' "$file"
+            echo "  ✓ Updated $file (compat_otp)"
+        fi
+    done
+
+    # Replace exutil.FixturePath with testdata.FixturePath
+    echo "Replacing exutil.FixturePath() calls..."
+    for file in $TEST_FILES; do
+        if grep -q "exutil\.FixturePath" "$file"; then
+            sed -i 's/exutil\.FixturePath/testdata.FixturePath/g' "$file"
+            echo "  ✓ Updated $file (exutil)"
+        fi
+    done
+
+    echo "✅ FixturePath calls replaced successfully"
+fi
 ```
 
 **For Single-Module Strategy:**
 
-Search all test files in `tests-extension/test/e2e` and add the testdata import:
+```bash
+cd <working-dir>/tests-extension
+
+echo "========================================="
+echo "Automating test file migration..."
+echo "========================================="
+
+# Find all test files that use FixturePath
+TEST_FILES=$(grep -rl "FixturePath" test/e2e/ --include="*_test.go" 2>/dev/null || true)
+
+if [ -z "$TEST_FILES" ]; then
+    echo "No test files using FixturePath found - skipping migration"
+else
+    echo "Found $(echo "$TEST_FILES" | wc -l) test files using FixturePath"
+
+    # Replace compat_otp.FixturePath with testdata.FixturePath
+    echo "Replacing compat_otp.FixturePath() calls..."
+    for file in $TEST_FILES; do
+        if grep -q "compat_otp\.FixturePath" "$file"; then
+            sed -i 's/compat_otp\.FixturePath/testdata.FixturePath/g' "$file"
+            echo "  ✓ Updated $file (compat_otp)"
+        fi
+    done
+
+    # Replace exutil.FixturePath with testdata.FixturePath
+    echo "Replacing exutil.FixturePath() calls..."
+    for file in $TEST_FILES; do
+        if grep -q "exutil\.FixturePath" "$file"; then
+            sed -i 's/exutil\.FixturePath/testdata.FixturePath/g' "$file"
+            echo "  ✓ Updated $file (exutil)"
+        fi
+    done
+
+    echo "✅ FixturePath calls replaced successfully"
+fi
+```
+
+#### Step 2: Add Testdata Import
+
+**For Multi-Module Strategy:**
+
+```bash
+cd <working-dir>
+
+echo "Adding testdata import to test files..."
+
+# Find all test files that now use testdata.FixturePath
+TEST_FILES=$(grep -rl "testdata\.FixturePath" test/e2e/ --include="*_test.go" 2>/dev/null || true)
+
+if [ -z "$TEST_FILES" ]; then
+    echo "No test files need testdata import"
+else
+    TESTDATA_IMPORT="$MODULE_NAME/test/testdata"
+
+    for file in $TEST_FILES; do
+        # Check if import already exists
+        if grep -q "\"$TESTDATA_IMPORT\"" "$file"; then
+            echo "  ✓ $file (import already exists)"
+            continue
+        fi
+
+        # Add import after package declaration
+        # Look for existing import block
+        if grep -q "^import (" "$file"; then
+            # Add to existing import block (after "import (" line)
+            sed -i "/^import (/a\\	\"$TESTDATA_IMPORT\"" "$file"
+            echo "  ✓ Added import to $file (existing import block)"
+        elif grep -q "^import \"" "$file"; then
+            # Convert single import to multi-import block
+            sed -i '0,/^import "/s/^import "/import (\n\t"/' "$file"
+            sed -i "/^import (/a\\	\"$TESTDATA_IMPORT\"\n)" "$file"
+            echo "  ✓ Added import to $file (created import block)"
+        else
+            # No imports yet, add after package line
+            sed -i "/^package /a\\\\nimport (\n\t\"$TESTDATA_IMPORT\"\n)" "$file"
+            echo "  ✓ Added import to $file (new import block)"
+        fi
+    done
+
+    echo "✅ Testdata imports added successfully"
+fi
+```
+
+**For Single-Module Strategy:**
 
 ```bash
 cd <working-dir>/tests-extension
 
-# Find all test files
-find test/e2e -name '*_test.go' -type f
+echo "Adding testdata import to test files..."
 
-# For each file, check if it uses FixturePath and add import if needed
+# Find all test files that now use testdata.FixturePath
+TEST_FILES=$(grep -rl "testdata\.FixturePath" test/e2e/ --include="*_test.go" 2>/dev/null || true)
+
+if [ -z "$TEST_FILES" ]; then
+    echo "No test files need testdata import"
+else
+    TESTDATA_IMPORT="github.com/<org>/<extension-name>-tests-extension/test/testdata"
+
+    for file in $TEST_FILES; do
+        # Check if import already exists
+        if grep -q "\"$TESTDATA_IMPORT\"" "$file"; then
+            echo "  ✓ $file (import already exists)"
+            continue
+        fi
+
+        # Add import after package declaration
+        # Look for existing import block
+        if grep -q "^import (" "$file"; then
+            # Add to existing import block (after "import (" line)
+            sed -i "/^import (/a\\	\"$TESTDATA_IMPORT\"" "$file"
+            echo "  ✓ Added import to $file (existing import block)"
+        elif grep -q "^import \"" "$file"; then
+            # Convert single import to multi-import block
+            sed -i '0,/^import "/s/^import "/import (\n\t"/' "$file"
+            sed -i "/^import (/a\\	\"$TESTDATA_IMPORT\"\n)" "$file"
+            echo "  ✓ Added import to $file (created import block)"
+        else
+            # No imports yet, add after package line
+            sed -i "/^package /a\\\\nimport (\n\t\"$TESTDATA_IMPORT\"\n)" "$file"
+            echo "  ✓ Added import to $file (new import block)"
+        fi
+    done
+
+    echo "✅ Testdata imports added successfully"
+fi
 ```
 
-Add to test files:
-```go
-import (
-    "github.com/<org>/<extension-name>-tests-extension/test/testdata"
-)
-```
+#### Step 3: Remove Old Imports (Optional Cleanup)
 
-#### Step 2: Replace FixturePath Calls
+**For Multi-Module Strategy:**
 
-Search and replace in all test files:
-
-**Search for patterns:**
 ```bash
-grep -r "compat_otp.FixturePath" test/e2e/
-grep -r "exutil.FixturePath" test/e2e/
+cd <working-dir>
+
+echo "Removing old compat_otp and exutil imports..."
+
+# Find all test files
+TEST_FILES=$(find test/e2e -name '*_test.go' -type f)
+
+for file in $TEST_FILES; do
+    CHANGED=0
+
+    # Comment out compat_otp import if it exists and is no longer used
+    if grep -q "compat_otp" "$file" && ! grep -q "compat_otp\." "$file"; then
+        sed -i 's|^\(\s*\)"\(.*compat_otp\)"|// \1"\2" // Replaced by testdata package|g' "$file"
+        CHANGED=1
+    fi
+
+    # Comment out exutil import if FixturePath was the only usage
+    if grep -q "github.com/openshift/origin/test/extended/util\"" "$file" && \
+       ! grep -q "exutil\." "$file"; then
+        sed -i 's|^\(\s*\)"\(github.com/openshift/origin/test/extended/util\)"|// \1"\2" // Replaced by testdata package|g' "$file"
+        CHANGED=1
+    fi
+
+    if [ $CHANGED -eq 1 ]; then
+        echo "  ✓ Cleaned up imports in $file"
+    fi
+done
+
+echo "✅ Old imports cleaned up"
 ```
 
-**Before:**
-```go
-configPath := compat_otp.FixturePath("config.yaml")
-manifestPath := exutil.FixturePath("manifests/deployment.yaml")
-```
+**For Single-Module Strategy:**
 
-**After:**
-```go
-configPath := testdata.FixturePath("config.yaml")
-manifestPath := testdata.FixturePath("manifests/deployment.yaml")
-```
+```bash
+cd <working-dir>/tests-extension
 
-**Using component-specific helpers:**
-```go
-// Instead of:
-deploymentPath := testdata.FixturePath("manifests/deployment.yaml")
+echo "Removing old compat_otp and exutil imports..."
 
-// Use convenience function:
-deploymentPath := testdata.GetManifest("deployment.yaml")
+# Find all test files
+TEST_FILES=$(find test/e2e -name '*_test.go' -type f)
 
-// Instead of:
-configPath := testdata.FixturePath("configs/settings.yaml")
+for file in $TEST_FILES; do
+    CHANGED=0
 
-// Use convenience function:
-configPath := testdata.GetConfig("settings.yaml")
-```
+    # Comment out compat_otp import if it exists and is no longer used
+    if grep -q "compat_otp" "$file" && ! grep -q "compat_otp\." "$file"; then
+        sed -i 's|^\(\s*\)"\(.*compat_otp\)"|// \1"\2" // Replaced by testdata package|g' "$file"
+        CHANGED=1
+    fi
 
-**Remove old imports:**
-```go
-// Remove or comment out:
-// "github.com/openshift/origin/test/extended/util/compat_otp"
-// "github.com/openshift/origin/test/extended/util"
+    # Comment out exutil import if FixturePath was the only usage
+    if grep -q "github.com/openshift/origin/test/extended/util\"" "$file" && \
+       ! grep -q "exutil\." "$file"; then
+        sed -i 's|^\(\s*\)"\(github.com/openshift/origin/test/extended/util\)"|// \1"\2" // Replaced by testdata package|g' "$file"
+        CHANGED=1
+    fi
+
+    if [ $CHANGED -eq 1 ]; then
+        echo "  ✓ Cleaned up imports in $file"
+    fi
+done
+
+echo "✅ Old imports cleaned up"
 ```
 
 ### Phase 7: Dependency Resolution and Verification (3 steps)
@@ -1798,11 +2068,13 @@ Successfully migrated **<extension-name>** to OpenShift Tests Extension (OTE) fr
 - ✅ `go.mod` (updated) - Added OTE dependency and replace directive in replace section
 - ✅ `Makefile` (updated) - Added extension build target
 
-### Test Files
+### Test Files (Fully Automated)
 - ✅ Copied **X** test files to `test/e2e/`
 - ✅ Copied **Y** testdata files to `test/testdata/`
-- ✅ Updated imports to use `$MODULE_NAME/test/testdata`
-- ✅ Replaced old `compat_otp.FixturePath()` calls
+- ✅ Automatically replaced `compat_otp.FixturePath()` → `testdata.FixturePath()`
+- ✅ Automatically replaced `exutil.FixturePath()` → `testdata.FixturePath()`
+- ✅ Automatically added imports: `$MODULE_NAME/test/testdata`
+- ✅ Automatically cleaned up old compat_otp/exutil imports
 
 ## Statistics
 
@@ -1850,6 +2122,59 @@ make list-tests
 
 # Run specific test
 ./extension run "test name pattern"
+```
+
+## Troubleshooting
+
+### If Dependency Download Was Interrupted
+
+If you see warnings about failed dependency downloads during migration, complete the process manually:
+
+**For Multi-Module Strategy:**
+
+```bash
+cd <working-dir>/test/e2e
+
+# Complete dependency resolution
+go get github.com/openshift-eng/openshift-tests-extension@latest
+go get "github.com/openshift/origin@$ORIGIN_VERSION"
+go get github.com/onsi/ginkgo/v2@latest
+go get github.com/onsi/gomega@latest
+
+# Resolve all dependencies
+go mod tidy
+
+# Download all modules
+go mod download
+
+# Verify files are created
+ls -la go.mod go.sum
+
+# Return to root
+cd ../..
+```
+
+**Root module (if needed):**
+
+```bash
+cd <working-dir>
+
+go mod tidy
+go mod download
+```
+
+### If Build Fails
+
+```bash
+# Check import paths in test files
+grep -r "import" test/e2e/*.go
+
+# Verify all dependencies are available
+cd test/e2e && go mod verify
+
+# Clean and rebuild
+make clean-extension
+make tests-ext-build
 ```
 
 **For Single-Module Strategy:**
@@ -1905,12 +2230,14 @@ Successfully migrated **<extension-name>** to OpenShift Tests Extension (OTE) fr
 - ✅ `Makefile` - Build targets
 - ✅ `bindata.mk` - Bindata generation rules
 
-### Test Files
+### Test Files (Fully Automated)
 - ✅ Copied **X** test files to `test/e2e/`
 - ✅ Copied **Y** testdata files to `test/testdata/`
 - ✅ Vendored dependencies to `vendor/`
-- ✅ Updated imports to use `github.com/<org>/<extension-name>-tests-extension/test/testdata`
-- ✅ Replaced old `compat_otp.FixturePath()` calls
+- ✅ Automatically replaced `compat_otp.FixturePath()` → `testdata.FixturePath()`
+- ✅ Automatically replaced `exutil.FixturePath()` → `testdata.FixturePath()`
+- ✅ Automatically added imports: `github.com/<org>/<extension-name>-tests-extension/test/testdata`
+- ✅ Automatically cleaned up old compat_otp/exutil imports
 
 ## Statistics
 
@@ -2034,6 +2361,55 @@ docker-build:
 .PHONY: docker-extension
 docker-extension: docker-build
 	docker run --rm <component-name>:latest /usr/bin/extension list
+```
+
+## Troubleshooting
+
+### If Dependency Download Was Interrupted
+
+If you see warnings about failed dependency downloads during migration, complete the process manually:
+
+```bash
+cd <working-dir>/tests-extension
+
+# Get the correct openshift/origin version from openshift-tests-private
+OTP_PATH="<path-to-openshift-tests-private>"
+ORIGIN_VERSION=$(grep "github.com/openshift/origin" "$OTP_PATH/go.mod" | head -1 | awk '{print $2}')
+echo "Using openshift/origin version: $ORIGIN_VERSION"
+
+# Complete dependency resolution
+go get github.com/openshift-eng/openshift-tests-extension@latest
+go get "github.com/openshift/origin@$ORIGIN_VERSION"
+go get github.com/onsi/ginkgo/v2@latest
+go get github.com/onsi/gomega@latest
+
+# Resolve all dependencies
+go mod tidy
+
+# Download all modules
+go mod download
+
+# Verify files are created
+ls -la go.mod go.sum
+```
+
+### If Build Fails
+
+```bash
+cd <working-dir>/tests-extension
+
+# Check import paths in test files
+grep -r "import" test/e2e/*.go
+
+# Verify all dependencies are available
+go mod verify
+
+# Re-vendor dependencies
+go mod vendor
+
+# Clean and rebuild
+make clean
+make build
 ```
 
 ## Customization Options
